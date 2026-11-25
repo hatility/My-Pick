@@ -1,0 +1,35 @@
+# My Pick 을 HTTPS 로 띄우기 (실제로 쓸 때)
+#   1) .env 에 DOMAIN=vote.example.kr · SITE_URL=https://vote.example.kr 를 넣어요
+#   2) docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
+# 앞에 Caddy 가 서서 인증서를 자동으로 받고, My Pick 은 밖에서 바로 닿지 않게 숨겨요.
+# 이미 쓰는 리버스 프록시(nginx 등)가 있으면 이 파일 대신 그쪽에 붙이고 .env 에 TRUST_PROXY=1 만 넣으세요.
+services:
+  web:
+    ports: !reset []
+    environment:
+      TRUST_PROXY: "1"
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,11 @@
+# My Pick 앞에 두는 HTTPS 문지기 (docker-compose.https.yml 이 써요)
+# DOMAIN 이 진짜 도메인이면 인증서를 자동으로 받아 와요 (Let's Encrypt). 80 · 443 포트가 밖에서 열려 있어야 해요.
+# DOMAIN=localhost 로 두면 이 컴퓨터에서만 쓰는 임시 인증서로 시험해 볼 수 있어요.
+{$DOMAIN:localhost} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy web:8080 {
+		# 실시간 알림(SSE)을 모으지 않고 바로 흘려보내요
+		flush_interval -1
+	}
+}

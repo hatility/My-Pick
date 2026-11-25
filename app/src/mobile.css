@@ -1,0 +1,199 @@
+/* /m — 휴대폰 · 태블릿. 한 줄로 쌓고, 누르는 곳은 크게, ‘투표하기’는 엄지가 닿는 아래쪽에 붙여요. */
+.m {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.m-home {
+  max-width: 560px;
+}
+.m-home .top {
+  width: 100%;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+}
+.m-join {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 4px 18px 24px;
+}
+.m-join .art {
+  max-width: 230px;
+  justify-self: center;
+  margin-bottom: -6px;
+}
+.m-join h1 {
+  font-size: 2.1rem;
+}
+.m-join .hero-card {
+  padding: 20px;
+  margin: 6px 6px 6px 0;
+}
+.m-join .door {
+  margin-top: 6px;
+}
+.m-home .foot {
+  padding: 16px 18px calc(28px + env(safe-area-inset-bottom));
+}
+.m-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+  padding: calc(10px + env(safe-area-inset-top)) 18px 10px;
+  background: var(--sheet);
+  border-bottom: 1px solid var(--line);
+}
+.m-bar .org-logo {
+  height: 28px;
+}
+.m-bar .org-stamp {
+  width: 26px;
+  height: 26px;
+}
+.m-bar .org-name {
+  font-size: 0.93rem;
+}
+.m-room {
+  display: grid;
+}
+.m-room strong {
+  font-size: 1.1rem;
+}
+.m-room span {
+  font-size: 0.87rem;
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+.m-main {
+  flex: 1;
+  padding: 18px 20px calc(120px + env(safe-area-inset-bottom)) 14px;
+}
+.m .sheet-head {
+  padding: 18px 18px 14px;
+}
+.m .sheet-head h2 {
+  font-size: 1.4rem;
+}
+.m .row {
+  min-height: 76px;
+  grid-template-columns: 1fr 72px;
+}
+.m .row-label {
+  padding: 14px 18px;
+}
+.m .ballot-hint {
+  padding: 10px 18px;
+}
+/* 아래에 붙는 버튼 줄 */
+.m .ballot > .actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  background: var(--sheet);
+  border-top: 2px solid var(--ink);
+  box-shadow: 0 -8px 24px rgb(20 33 61 / 0.1);
+}
+.m .confirm {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+  border-width: 2px 0 0;
+  border-radius: 0;
+}
+.m .confirm .actions {
+  flex-wrap: nowrap;
+}
+.m .confirm .btn {
+  flex: 1;
+  min-height: 56px;
+}
+.m-past {
+  margin-top: 22px;
+}
+.m-past summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+/* 태블릿: 글자와 누르는 곳을 조금 더 크게 */
+@media (min-width: 600px) {
+  .m {
+    font-size: 19px;
+  }
+  .m-main {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  .m .ballot > .actions,
+  .m .confirm {
+    left: 50%;
+    right: auto;
+    width: 640px;
+    transform: translateX(-50%);
+  }
+}
+
+/* ── 한 손 모드: 고를 것을 화면 아래쪽에 ── */
+.m-bar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.m-bar-top .icon-btn[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+.m[data-reach] .m-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.m[data-reach] .m-main > .sheet,
+.m[data-reach] .m-main > .wait {
+  order: 9;
+  margin-top: 16px;
+}
+.m[data-reach] .sheet-head h2 {
+  font-size: 1.15rem;
+}
+
+/* ── 태블릿(넓은 화면): 왼쪽에 지금 안건, 오른쪽에 지난 안건 ── */
+@media (min-width: 900px) {
+  .m:not(.m-home) {
+    max-width: 1180px;
+  }
+  .m:not(.m-home) .m-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    align-content: start;
+    column-gap: 32px;
+  }
+  .m-main > * {
+    grid-column: 1;
+  }
+  .m-main > .m-past {
+    grid-column: 2;
+    grid-row: 1 / span 6;
+    margin-top: 0;
+  }
+  .m .ballot > .actions,
+  .m .confirm {
+    width: min(100%, 1180px);
+  }
+}

@@ -1,0 +1,285 @@
+/* 큰 화면. 멀리서도 읽히게: 먹색 바탕에 큰 글자, 화면 크기에 맞춰 커지는 단위(vw · vh)로. */
+.sc {
+  --line: #33415f;
+  --paper: #22304f;
+  --mute: #b4bfd6;
+  --ink: #ffffff;
+  --stamp: #ff6b61;
+  --stamp-soft: #3a1f26;
+  --stamp-text: #ffb9b3;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #14213d;
+  color: #fff;
+  font-size: clamp(18px, 1.5vw, 30px);
+}
+.sc-center {
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.sc-bar {
+  display: flex;
+  align-items: center;
+  gap: 2vw;
+  padding: 1.6vh 3vw;
+  border-bottom: 1px solid var(--line);
+}
+.sc .org-logo {
+  height: clamp(36px, 5vh, 64px);
+  max-width: 16vw;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #fff;
+}
+.sc .org-stamp {
+  width: 1.8em;
+  height: 1.8em;
+  stroke: #ff8f86;
+}
+.sc-room {
+  margin-right: auto;
+  padding-left: 2vw;
+  border-left: 1px solid var(--line);
+}
+.sc-count {
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+.sc-full {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--mute);
+  cursor: pointer;
+}
+.sc-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4vw;
+  align-items: center;
+  padding: 4vh 4vw;
+}
+.sc-vote,
+.sc-wait {
+  min-width: 0;
+  max-width: 1200px;
+}
+.sc-kicker {
+  color: #ff8f86;
+  font-weight: 700;
+}
+.sc h1 {
+  font-size: clamp(2rem, 4.6vw, 5.5rem);
+  font-weight: 800;
+  line-height: 1.15;
+}
+.sc-note,
+.sc-hint,
+.sc-wait p {
+  margin-top: 1vh;
+  color: var(--mute);
+}
+.sc-head {
+  display: flex;
+  align-items: center;
+  gap: 3vw;
+  margin-top: 1vh;
+}
+.sc-ring {
+  position: relative;
+  flex: none;
+  width: clamp(150px, 19vw, 340px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+.sc-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.sc-ring circle {
+  fill: none;
+  stroke-width: 9;
+  stroke-linecap: round;
+}
+.sc-ring-track {
+  stroke: var(--paper);
+}
+.sc-ring-fill {
+  stroke: #fff;
+  transition: stroke-dasharray 0.25s linear;
+}
+.sc-ring span {
+  font-size: clamp(2.4rem, 5.4vw, 6rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.sc-ring-soon .sc-ring-fill {
+  stroke: #ff6b61;
+}
+.sc-ring-soon span {
+  color: #ff6b61;
+  animation: tick 1s ease-in-out infinite;
+}
+/* 한 명 = 점 하나 */
+.sc-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6vw;
+  max-width: 1100px;
+}
+.sc-dots span {
+  width: clamp(16px, 1.9vw, 34px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  transition:
+    background-color 0.3s,
+    border-color 0.3s,
+    scale 0.3s var(--ease);
+}
+.sc-dots span.on {
+  background: #ff6b61;
+  border-color: #ff6b61;
+  scale: 1.08;
+}
+.sc-dots-many span {
+  width: clamp(9px, 1vw, 18px);
+}
+.sc-dots-many {
+  gap: 0.35vw;
+}
+.sc-bar-svg {
+  width: 100%;
+  height: 14px;
+  border-radius: 7px;
+}
+.sc-progress {
+  margin: 5vh 0 2vh;
+}
+.sc-track {
+  fill: var(--paper);
+}
+.sc-fill {
+  fill: #fff;
+  transition: width 0.5s var(--ease);
+}
+.sc-progress p {
+  margin-top: 1vh;
+  font-size: 1.4em;
+  font-variant-numeric: tabular-nums;
+}
+.sc-progress strong {
+  font-size: 1.6em;
+}
+.sc .result {
+  margin-top: 4vh;
+  font-size: 1.35em;
+}
+.sc .result-rows {
+  gap: 2.4vh;
+}
+.sc .res-bar {
+  height: 22px;
+  border-radius: 11px;
+}
+.sc .res-fill {
+  fill: #8493b5;
+}
+.sc .res-win .res-fill {
+  fill: #ff6b61;
+}
+.sc .res-stamp {
+  width: 1.3em;
+  height: 1.3em;
+  stroke: #ff6b61;
+}
+.sc .result-meta {
+  font-size: 0.7em;
+}
+.sc-stamp {
+  width: 12vw;
+  height: 12vw;
+  max-width: 180px;
+  max-height: 180px;
+  stroke: #ff6b61;
+}
+.sc-join {
+  width: clamp(220px, 22vw, 400px);
+  padding: 2vw;
+  border-radius: 20px;
+  box-shadow: 10px 10px 0 -2px #22304f, 10px 10px 0 0 #ffffff33;
+  background: #fff;
+  color: #14213d;
+  text-align: center;
+}
+.qr {
+  width: 100%;
+  display: block;
+}
+.sc-url {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.sc-label {
+  margin-top: 1.4vh;
+  font-size: 0.8em;
+  color: #56607a;
+}
+.sc-code {
+  font-size: 2.3em;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+.sc-joined {
+  margin-top: 1.4vh;
+  padding-top: 1.4vh;
+  border-top: 1px solid #d6dbe5;
+  font-size: 0.85em;
+  color: #56607a;
+}
+@media (max-width: 800px) {
+  .sc-main {
+    grid-template-columns: 1fr;
+  }
+  .sc-join {
+    width: auto;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+}
+
+.sc .verdict {
+  font-size: 1.2em;
+  border-width: 3px;
+}
+.sc-ring-long span {
+  max-width: 70%;
+  font-size: clamp(1.3rem, 2.6vw, 3rem);
+  line-height: 1.2;
+  text-align: center;
+}
+.sc-notice {
+  max-width: 18em;
+  font-size: clamp(2.2rem, 5.4vw, 6.5rem);
+}
+[data-tone] .sc-kicker {
+  color: color-mix(in srgb, var(--tone) 55%, #ffffff);
+}
+.sc-full {
+  flex: none;
+  min-width: 48px;
+}
