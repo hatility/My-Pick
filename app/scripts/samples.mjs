@@ -18,7 +18,12 @@ mkdirSync(out, { recursive: true })
 const startedAt = Date.now()
 const b = await chromium.launch({ channel: 'chrome' })
 const open = async (options) => {
-  const page = await (await b.newContext({ locale: 'ko-KR', ...options })).newPage()
+  const ctx = await b.newContext({ locale: 'ko-KR', ...options })
+  // 화면 안 확인 창(dialog.ask)은 ‘확인’을 눌러 줘요 (예전에 브라우저 기본 창을 받아 주던 것과 같게)
+  await ctx.addInitScript(() => {
+    new MutationObserver(() => document.querySelector('dialog.ask[open] .ask-ok')?.click()).observe(document, { childList: true, subtree: true })
+  })
+  const page = await ctx.newPage()
   page.on('dialog', (d) => d.accept())
   return page
 }
@@ -27,6 +32,14 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
 const TABLET = { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1.5 }
 
 const list = []
+
+/** 선택지 칸을 하나씩 채워요 (칸이 모자라면 ‘선택지 더하기’) */
+async function fillOptions(page, list) {
+  for (let i = 0; i < list.length; i++) {
+    if (i >= (await page.locator('.opt-row').count())) await page.getByRole('button', { name: '선택지 더하기' }).click()
+    await page.getByLabel(`선택지 ${i + 1}`, { exact: true }).fill(list[i])
+  }
+}
 /** 움직임이 끝나길 기다렸다가 찍고, 목록에 설명을 적어요 */
 async function shot(page, name, caption, options = {}) {
   if (options.fullPage) await page.evaluate(() => scrollTo(0, 0)) // 긴 화면은 맨 위에서부터 (붙어 다니는 머리줄이 중간에 찍히지 않게)
@@ -58,7 +71,7 @@ async function botsJoin(n) {
     bots.push(cookie)
   }
 }
-/** picks: 봇마다 고를 선택지 순서 번호 (null 은 기권) */
+/** picks: 봇마다 고를 선택지 순서 번호 (null 은 건너뜀) */
 async function botsVote(from, picks) {
   const me = await (await fetch(`${base}/api/me`, { headers: { cookie: bots[0] } })).json()
   const item = me.items.find((i) => i.status === 'open')
@@ -81,7 +94,7 @@ try {
   const guide = await open(PC)
   await guide.goto(`${base}/guide`)
   await guide.getByRole('heading', { name: '비밀은 이렇게 지켜요' }).waitFor()
-  await shot(guide, '안내 페이지', '참여하는 법, 픽 여는 법, 비밀을 지키는 방법, 자주 묻는 것을 모아 둔 페이지.', { fullPage: true })
+  await shot(guide, '이용 가이드', '참여하기 · 진행하기를 단계마다 화면 조각과 함께 보여 주고, 알아 두면 좋은 것 · 비밀 보장 · 자주 묻는 것을 모아 둔 페이지.', { fullPage: true })
 
   // ── 관리자: 로그인 · 기관 설정 · 방 만들기 ──
   const admin = await open(PC)
@@ -106,25 +119,25 @@ try {
   await admin.getByRole('button', { name: '새 방 만들기' }).click()
   await admin.getByLabel('방 이름').fill('가을 축제 준비')
   await admin.getByRole('textbox', { name: /방 비밀번호/ }).fill('1234')
-  await admin.getByLabel(/안건 제한 시간/).fill('240')
+  await admin.getByRole('combobox', { name: '주제 제한 시간' }).selectOption('300')
   await admin.getByLabel(/끊긴 사람을 기다리는 시간/).fill('5')
   await shot(admin, '새 방 만들기', '입장 방식(간편 · 엄격), 방 비밀번호, 제한 시간, 결과 공개 방식을 방마다 정해요.', { fullPage: true })
   await admin.getByRole('button', { name: '방 만들기' }).click()
-  await admin.getByText('방 번호').waitFor()
+  await admin.locator('.fact-code').waitFor()
   code = (await admin.locator('.fact-code').innerText()).trim()
   made.add(code)
 
-  await admin.getByRole('button', { name: '안건 더하기' }).first().click()
-  await admin.getByLabel('안건 제목').fill('축제 주제를 골라 주세요')
-  await admin.getByRole('textbox', { name: /선택지/ }).fill('우주 여행\n레트로 게임\n숲속 캠핑')
-  await admin.locator('form.form-inset').getByRole('button', { name: '안건 더하기' }).click()
+  await admin.getByRole('button', { name: '주제 더하기' }).first().click()
+  await admin.getByLabel('주제 제목').fill('축제 주제를 골라 주세요')
+  await fillOptions(admin, ['우주 여행', '레트로 게임', '숲속 캠핑'])
+  await admin.locator('form.form-inset').getByRole('button', { name: '주제 더하기' }).click()
   await admin.getByRole('heading', { name: '축제 주제를 골라 주세요' }).waitFor()
-  await admin.getByRole('button', { name: '안건 더하기' }).first().click()
-  await admin.getByRole('button', { name: '찬성 / 반대 (과반이면 가결)', exact: true }).click()
-  await admin.getByLabel('안건 제목').fill('회칙 제5조를 바꿀까요?')
+  await admin.getByRole('button', { name: '주제 더하기' }).first().click()
+  await admin.getByRole('button', { name: '찬성 / 반대 (절반을 넘으면 통과)', exact: true }).click()
+  await admin.getByLabel('주제 제목').fill('회칙 제5조를 바꿀까요?')
   await admin.locator('form.form-inset').scrollIntoViewIfNeeded()
-  await shot(admin, '안건 만들기 (빠른 틀)', '‘찬성 / 반대’, ‘과반이면 가결’, ‘연습 픽’ 같은 빠른 틀로 안건을 금방 만들어요.', { fullPage: true })
-  await admin.locator('form.form-inset').getByRole('button', { name: '안건 더하기' }).click()
+  await shot(admin, '주제 만들기 (자주 쓰는 모양)', '‘찬성 / 반대’, ‘절반을 넘으면 통과’, ‘연습 픽’ 같은 자주 쓰는 모양로 주제를 금방 만들어요.', { fullPage: true })
+  await admin.locator('form.form-inset').getByRole('button', { name: '주제 더하기' }).click()
   await admin.getByRole('heading', { name: '회칙 제5조를 바꿀까요?' }).waitFor()
 
   // ── 큰 화면 · 입장 ──
@@ -138,26 +151,26 @@ try {
   await pc.getByLabel('방 비밀번호').fill('1234')
   await shot(pc, '들어가기 (방 비밀번호)', '방 번호를 넣으면 그 방에 필요한 것만 물어요. 비밀번호가 없는 방은 이 단계가 없어요.')
   await pc.getByRole('button', { name: '들어가기' }).click()
-  await pc.getByText('다음 안건을 기다리고 있어요').waitFor()
+  await pc.getByText('다음 주제를 기다리고 있어요').waitFor()
   await phone.getByLabel('방 번호').fill(code)
   await phone.getByRole('button', { name: '다음' }).click()
   await phone.getByLabel('방 비밀번호').fill('1234')
   await phone.getByRole('button', { name: '들어가기' }).click()
-  await phone.getByText('다음 안건을 기다리고 있어요').waitFor()
-  await shot(phone, '기다리는 화면 (휴대폰)', '들어온 뒤에는 진행자가 안건을 열 때까지 기다려요. 새로고침하지 않아도 돼요.')
+  await phone.getByText('다음 주제를 기다리고 있어요').waitFor()
+  await shot(phone, '기다리는 화면 (휴대폰)', '들어온 뒤에는 진행자가 주제를 열 때까지 기다려요. 새로고침하지 않아도 돼요.')
   const tablet = await open(TABLET)
   await tablet.goto(`${base}/?room=${code}`)
   await tablet.getByLabel('방 비밀번호').fill('1234')
   await tablet.getByRole('button', { name: '들어가기' }).click()
-  await tablet.getByText('다음 안건을 기다리고 있어요').waitFor()
+  await tablet.getByText('다음 주제를 기다리고 있어요').waitFor()
   await botsJoin(10)
 
   await admin.getByText('27명').first().waitFor()
-  await shot(admin, '방 진행 화면 (준비)', '방장 · 관리자가 보는 화면. 방 번호, 들어온 사람, 접속 인원이 보이고 안건을 하나씩 열어요.')
+  await shot(admin, '방 진행 화면 (준비)', '방장 · 관리자가 보는 화면. 방 번호, 들어온 사람, 접속 인원이 보이고 주제를 하나씩 열어요.')
   await admin.getByRole('button', { name: '입장 마감' }).click()
   await admin.getByRole('button', { name: '입장 다시 열기' }).waitFor()
 
-  // ── 1번 안건: 학생회장 ──
+  // ── 1번 주제: 학생회장 ──
   await admin.getByRole('button', { name: '픽 열기' }).first().click()
   await phone.getByRole('heading', { name: '축제 주제를 골라 주세요' }).waitFor()
   await botsVote(0, [1, 0, 1, 2, 1, 0, 1, null, 1, 0, 2, 1, 0, 1, 2, 1])
@@ -179,13 +192,13 @@ try {
   await castVote(pc)
   await castVote(tablet)
   await botsVote(16, [1, 0, 1, 2, 0, 1, 1, 0])
-  await screen.getByText('1번째 안건 결과').waitFor({ timeout: 15000 })
+  await screen.getByText('1번째 주제 결과').waitFor({ timeout: 15000 })
   await shot(screen, '큰 화면 - 결과', '모두 픽하면 저절로 마감되고, 결과가 모든 화면에 한꺼번에 나와요.')
   await pc.getByText('모두 픽함').first().waitFor()
-  await shot(pc, '결과 (PC)', '참여자 화면 오른쪽에 지난 안건의 결과가 쌓여요.')
+  await shot(pc, '결과 (PC)', '참여자 화면 오른쪽에 지난 주제의 결과가 쌓여요.')
   await shot(phone, '결과 (휴대폰)', '휴대폰에서 보는 결과.')
 
-  // ── 2번 안건: 가결 판정 ──
+  // ── 2번 주제: 통과 통과 여부 ──
   await admin.getByRole('button', { name: '픽 열기' }).first().click()
   await phone.getByRole('heading', { name: '회칙 제5조를 바꿀까요?' }).waitFor()
   await botsVote(0, [0, 0, 1, 0, 0, null, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, null, 0, 1, 0, 0, null, 1, 0])
@@ -193,10 +206,10 @@ try {
     await pick(p, '찬성')
     await castVote(p)
   }
-  await screen.getByText('가결', { exact: true }).waitFor({ timeout: 15000 })
-  await shot(screen, '큰 화면 - 가결', '찬반 안건에 가결 기준(과반 · 3분의 2)을 정해 두면 판정이 직인처럼 찍혀 나와요.')
+  await screen.getByText('통과', { exact: true }).waitFor({ timeout: 15000 })
+  await shot(screen, '큰 화면 - 통과', '찬반 주제에 통과 기준(절반 넘게 · 3분의 2)을 정해 두면 통과 여부이 직인처럼 찍혀 나와요.')
   await phone.evaluate(() => (document.documentElement.dataset.theme = 'dark'))
-  await phone.getByText('가결', { exact: true }).first().waitFor()
+  await phone.getByText('통과', { exact: true }).first().waitFor()
   await shot(phone, '어두운 화면 (휴대폰)', '기기가 어두운 화면이면 따라가고, 직접 바꿀 수도 있어요.', { fullPage: true })
 
   // ── 진행자: 결과 · 인쇄 · 기록 ──
@@ -208,14 +221,14 @@ try {
   await shot(admin, '통계', '방 · 참여 인원 · 받은 표 · 참여율을 날마다, 주마다 보여 줘요. 방이 지워져도 합계는 남아요.', { fullPage: true })
   await admin.getByRole('button', { name: '방 목록', exact: true }).click()
   await admin.locator('.room-row', { hasText: code }).click()
-  await admin.getByRole('link', { name: '결과 내려받기' }).waitFor()
-  await shot(admin, '방 진행 화면 (마감 · 결과)', '마감된 안건의 결과. 내려받기(CSV)와 인쇄로 남길 수 있고, 동점이면 결선을 만들 수 있어요.', { fullPage: true })
+  await admin.locator('.menu > summary').click() // 내려받기 · 인쇄 · 결과 정리 인쇄가 여기 모여 있어요
+  await shot(admin, '방 진행 화면 (마감 · 결과)', '마감된 주제의 결과. ‘결과 남기기’에서 내려받기(CSV) · 인쇄 · 결과 정리 인쇄를 고르고, 동점이면 그 선택지만으로 다시 고르게 할 수 있어요.', { fullPage: true })
   await admin.emulateMedia({ media: 'print' })
   await admin.evaluate(() => (document.body.dataset.print = 'results'))
   await shot(admin, '결과 인쇄 모양', '‘결과 인쇄’를 누르면 버튼 없이 결과만 종이에 나와요.', { fullPage: true })
   await admin.evaluate(() => (document.body.dataset.print = 'minutes'))
   const proof = (await admin.locator('.minutes').getByText(/결과 확인 코드: /).first().innerText()).split(': ')[1].trim()
-  await shot(admin, '회의록 인쇄 모양', '‘회의록 인쇄’를 누르면 안건 · 받은 픽 · 판정 · 서명 칸이 담긴 회의록이 한 장으로 나와요.', { fullPage: true })
+  await shot(admin, '결과 정리 인쇄 모양', '‘결과 정리 인쇄’를 누르면 주제 · 받은 픽 · 통과 여부 · 서명 칸이 담긴 결과 정리가 한 장으로 나와요.', { fullPage: true })
   await admin.emulateMedia({ media: 'screen' })
   const checker = await open(PC)
   await checker.goto(`${base}/verify`)
@@ -249,7 +262,7 @@ try {
   await phone.getByText('신고를 보냈어요').waitFor()
   await admin.getByRole('button', { name: /^신고/ }).click()
   await admin.getByText(`가을 축제 준비 (방 번호 ${code})`).waitFor() // 신고는 방이 지워져도 남으니, 이번 방 번호로 찾아요
-  await shot(admin, '신고 · 금칙어 (관리자)', '참여자가 ‘이 방 신고하기’로 보낸 신고가 모여요. 금칙어를 정하거나 문제 방을 만든 곳을 막을 수 있어요. (사진 속 신고는 예시예요.)')
+  await shot(admin, '신고 · 제보 (관리자)', '신고 · 오류 제보 · 막을 낱말 · 막은 곳을 작은 탭으로 나눠 하나씩 봐요. 참여자가 ‘이 방 신고하기’로 보낸 신고가 여기에 모여요. (사진 속 신고는 예시예요.)')
   await admin.getByRole('button', { name: '관리자', exact: true }).click()
   await admin.getByLabel('아이디').fill('sample-teacher')
   await admin.getByLabel(/비밀번호/).fill('sample-pass-1')
@@ -283,7 +296,7 @@ try {
 
   writeFileSync(
     `${out}/사진 목록.md`,
-    `# My Pick 예시 사진\n\n개발판(0.1.0-dev)을 실제로 띄워 찍은 화면이에요. ‘가을 축제 준비’ 방에 27명이 들어와 안건 두 개를 픽하는 장면이고, 이름과 숫자는 모두 지어낸 예시예요.\n\n| 사진 | 설명 |\n|---|---|\n${list.map(([f, c]) => `| ${f.replace(/\.png$/, '')} | ${c} |`).join('\n')}\n`,
+    `# My Pick 예시 사진\n\n0.2.0 을 실제로 띄워 찍은 화면이에요. ‘가을 축제 준비’ 방에 27명이 들어와 주제 두 개를 픽하는 장면이고, 이름과 숫자는 모두 지어낸 예시예요.\n\n| 사진 | 설명 |\n|---|---|\n${list.map(([f, c]) => `| ${f.replace(/\.png$/, '')} | ${c} |`).join('\n')}\n`,
   )
   execFileSync('zip', ['-qr', '../My Pick 예시 사진.zip', '.', '-x', '*.DS_Store'], { cwd: out })
   console.log(`\n✓ 사진 ${list.length}장을 만들었어요: ${out} (묶음: ../docs/My Pick 예시 사진.zip)`)
@@ -299,7 +312,12 @@ try {
     const cookie = login.headers.get('set-cookie').split(';')[0]
     const { rooms } = await (await fetch(`${base}/api/admin/rooms`, { headers: { cookie } })).json()
     for (const r of rooms) if (made.has(r.code) || r.title === '우리 반 소풍 장소 정하기') await fetch(`${base}/api/admin/rooms/${r.id}`, { method: 'DELETE', headers: { ...X, cookie } })
-    for (const r of (await (await fetch(`${base}/api/admin/reports`, { headers: { cookie } })).json()).reports) if (!r.handled && r.at >= startedAt) await fetch(`${base}/api/admin/reports/${r.id}/handle`, { method: 'POST', headers: { ...X, cookie } })
+    // 이번에 시험하며 남긴 신고만 확인 처리한 뒤 지워요 (관리자의 신고 목록에 쌓이지 않게)
+    for (const r of (await (await fetch(`${base}/api/admin/reports`, { headers: { cookie } })).json()).reports)
+      if (r.at >= startedAt && /가을 축제 준비|우리 반 소풍/.test(r.roomTitle)) {
+        await fetch(`${base}/api/admin/reports/${r.id}/handle`, { method: 'POST', headers: { ...X, cookie } })
+        await fetch(`${base}/api/admin/reports/${r.id}`, { method: 'DELETE', headers: { ...X, cookie } })
+      }
     const { admins } = await (await fetch(`${base}/api/admin/admins`, { headers: { cookie } })).json()
     for (const a of admins) if (a.name === 'sample-teacher') await fetch(`${base}/api/admin/admins/${a.id}`, { method: 'DELETE', headers: { ...X, cookie } })
   } catch {

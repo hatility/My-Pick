@@ -31,7 +31,7 @@
   height: clamp(36px, 5vh, 64px);
   max-width: 16vw;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--r-xs);
   background: #fff;
 }
 .sc .org-stamp {
@@ -54,7 +54,7 @@
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--mute);
   cursor: pointer;
@@ -145,9 +145,9 @@
   border-radius: 50%;
   border: 2px solid var(--line);
   transition:
-    background-color 0.3s,
-    border-color 0.3s,
-    scale 0.3s var(--ease);
+    background-color var(--dur-3) var(--ease),
+    border-color var(--dur-3) var(--ease),
+    scale var(--dur-3) var(--ease);
 }
 .sc-dots span.on {
   background: #ff6b61;
@@ -163,7 +163,7 @@
 .sc-bar-svg {
   width: 100%;
   height: 14px;
-  border-radius: 7px;
+  border-radius: 999px;
 }
 .sc-progress {
   margin: 5vh 0 2vh;
@@ -173,7 +173,7 @@
 }
 .sc-fill {
   fill: #fff;
-  transition: width 0.5s var(--ease);
+  transition: width var(--dur-4) var(--ease);
 }
 .sc-progress p {
   margin-top: 1vh;
@@ -192,7 +192,7 @@
 }
 .sc .res-bar {
   height: 22px;
-  border-radius: 11px;
+  border-radius: 999px;
 }
 .sc .res-fill {
   fill: #8493b5;
@@ -218,7 +218,7 @@
 .sc-join {
   width: clamp(220px, 22vw, 400px);
   padding: 2vw;
-  border-radius: 20px;
+  border-radius: var(--r-lg);
   box-shadow: 10px 10px 0 -2px #22304f, 10px 10px 0 0 #ffffff33;
   background: #fff;
   color: #14213d;
@@ -282,4 +282,46 @@
 .sc-full {
   flex: none;
   min-width: 48px;
+}
+.sc .final li {
+  background: var(--paper);
+  border-color: var(--line);
+  padding: 1.6vh 1.4vw;
+}
+.sc .final ol {
+  gap: 1.4vh;
+  font-size: 1.25em;
+}
+.sc .final strong {
+  color: #ff6b61;
+}
+
+/* 긴 제목 · 긴 공지: 글자를 줄여 남은 시간 · 결과가 화면 밖으로 밀리지 않게 */
+.sc h1[data-len='l'] {
+  font-size: clamp(1.7rem, 3.3vw, 4rem);
+}
+.sc h1[data-len='xl'] {
+  font-size: clamp(1.3rem, 2.3vw, 2.8rem);
+  line-height: 1.25;
+}
+.sc-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* 참여율 알림 */
+.sc-left {
+  padding: 6px 16px;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.12);
+  font-weight: 700;
+}
+
+.sc-ring-paused span {
+  color: #ffd166;
+}
+.sc-ring-paused .sc-ring-fill {
+  stroke: #ffd166;
 }

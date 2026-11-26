@@ -1,0 +1,27 @@
+name: 기능 제안
+description: 이런 게 있으면 좋겠어요
+title: "[제안] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: 어떤 때 필요했나요
+      description: 기능 이름보다, 어떤 자리에서 무엇이 불편했는지 적어 주시면 더 좋은 답을 찾을 수 있어요.
+      placeholder: 50명 모임에서 진행하는데, 늦게 온 사람이 지금 무슨 주제인지 몰라 계속 물어봤어요.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 이렇게 되면 좋겠어요
+  - type: dropdown
+    id: who
+    attributes:
+      label: 누구에게 필요한가요
+      multiple: true
+      options:
+        - 참여하는 사람
+        - 진행하는 사람 (방장)
+        - 운영하는 사람 (관리자)
+        - 직접 설치해 쓰는 사람

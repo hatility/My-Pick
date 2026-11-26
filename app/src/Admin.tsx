@@ -1,15 +1,17 @@
-// 관리자 화면 (/admin): 로그인 → 방 목록 → 방 하나 진행 (안건 열기 · 마감 · 입장 코드 · 큰 화면) · 기관 설정 · 기록
-import { useEffect, useState, type FormEvent } from 'react'
-import { Archive, ArrowDown, Eye, FlaskConical, Smartphone, ArrowLeft, ArrowUp, Ban, BellRing, Clock, Copy, GripVertical, SkipForward, Download, Scale, DoorClosed, DoorOpen, LogOut, MonitorUp, Pencil, Play, Plus, Printer, ShieldCheck, ShieldAlert, Square, Trash2 } from 'lucide-react'
+// 관리자 화면 (/admin): 로그인 → 방 목록 → 방 하나 진행 (주제 열기 · 마감 · 입장 코드 · 큰 화면) · 기관 설정 · 기록
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Ellipsis, Keyboard, X, ImageDown, Pause, Archive, ArrowDown, Eye, FlaskConical, Smartphone, ArrowLeft, ArrowUp, Ban, BellRing, Clock, Copy, GripVertical, SkipForward, Download, Scale, DoorClosed, DoorOpen, LogOut, MonitorUp, Pencil, Play, Plus, Printer, ShieldCheck, ShieldAlert, Square, Trash2 } from 'lucide-react'
+import { resultCard } from './card'
+import { ask, describe, dur, tell, toast } from './ui'
 import { api, type Item, type Org, type RoomState } from './api'
 import { Qr } from './Qr'
 import { Backups, MyPassword, OverviewTab, RoomLook, ScreenControl, StatsTab } from './AdminMore'
-import { Loading, Offline, OrgMark, Practice, shrink, Result, ThemeToggle, TimeLeft, useLive, type Live } from './parts'
+import { AdFoot, AppMark, Loading, Offline, Practice, shrink, Result, ThemeToggle, TimeLeft, useLive, type Live } from './parts'
 import './admin.css'
 
 export type Defaults = { seconds: number; grace: number; maxLogoMb: number; siteUrl: string }
 type RoomRow = { id: number; code: string; title: string; mode: 'simple' | 'strict'; owner: 'admin' | 'host'; expiresAt: number | null; archived: boolean; rehearsal: boolean; liveItem: string | null; present: number; closed: boolean; joined: number; items: number }
-type RoomInput = { title: string; mode: 'simple' | 'strict'; password: string; hostPassword?: string; capacity: number; seconds: number; grace: number; closeAll: boolean; live: boolean }
+type RoomInput = { easy?: boolean; title: string; mode: 'simple' | 'strict'; password: string; hostPassword?: string; capacity: number; seconds: number; grace: number; closeAll: boolean; live: boolean }
 
 /** 버튼 하나의 일: 하는 동안 잠그고, 안 되면 까닭을 보여 줘요 */
 export function useAct(after?: () => unknown) {
@@ -45,7 +47,7 @@ const printAs = (what: 'codes' | 'results' | 'minutes') => {
   document.body.dataset.print = what
   print()
 }
-const BASIS = { voted: '픽한 사람', valid: '기권을 뺀 사람', joined: '들어온 사람 전체' } as const
+const BASIS = { voted: '픽한 사람', valid: '실제로 고른 사람', joined: '들어온 사람 전체' } as const
 const fmtCode = (c: string) => `${c.slice(0, 4)}-${c.slice(4)}`
 
 type Session = { enabled: boolean; authed: boolean; name: string | null; top: boolean }
@@ -67,14 +69,24 @@ function Login({ enabled, onDone }: { enabled: boolean; onDone: () => void }) {
   const [id, setId] = useState('')
   const [password, setPassword] = useState('')
   const { act, error, busy } = useAct(onDone)
+  // 다른 화면과 같게 기관 이름 · 로고를 보여 줘요 (전에는 늘 ‘My Pick’ 으로 나왔어요)
+  const [org, setOrg] = useState<Org | null>(null)
+  useEffect(() => {
+    api<Org>('/api/org').then(setOrg, () => {})
+  }, [])
   const submit = (e: FormEvent) => {
     e.preventDefault()
     act(() => api('/api/admin/login', 'POST', { id, password }))
   }
   return (
     <main className="ad-login">
-      <OrgMark org={null} />
-      <h1>관리자 로그인</h1>
+      <header className="ad-login-head">
+        <AppMark />
+        <h1>관리자 로그인</h1>
+        <p>
+          운영을 맡은 사람만 들어와요. 참여하려면 <a href="/">첫 화면</a>으로 가 주세요.
+        </p>
+      </header>
       {!enabled && <p className="warn">관리자 비밀번호가 아직 없어요. .env 파일의 ADMIN_PASSWORD 를 8자 이상으로 넣고 서버를 다시 띄워 주세요.</p>}
       <form className="join" onSubmit={submit}>
         <label className="field">
@@ -90,6 +102,7 @@ function Login({ enabled, onDone }: { enabled: boolean; onDone: () => void }) {
           로그인
         </button>
       </form>
+      <AdFoot org={org} label="관리 화면" />
     </main>
   )
 }
@@ -115,7 +128,7 @@ function Console({ me, onLogout }: { me: Session; onLogout: () => void }) {
   return (
     <div className="ad">
       <header className="ad-bar">
-        <OrgMark org={org} />
+        <AppMark />
         <nav className="ad-tabs" aria-label="관리자 메뉴">
           {(['home', 'rooms', 'reports', 'stats', 'org', 'audit', ...(me.top ? (['admins'] as const) : [])] as Tab[]).map((t) => (
             <button key={t} className="ad-tab" aria-current={tab === t ? 'page' : undefined} onClick={() => (t === 'rooms' ? go(null) : setTab(t))}>
@@ -139,6 +152,7 @@ function Console({ me, onLogout }: { me: Session; onLogout: () => void }) {
         {tab === 'admins' && <AdminsTab />}
         {tab === 'rooms' && (roomId ? <RoomPage key={roomId} id={roomId} defs={defs} onBack={() => go(null)} onOpen={go} /> : <Rooms defs={defs} onOpen={go} />)}
       </main>
+      <AdFoot org={org} label="관리 화면" />
     </div>
   )
 }
@@ -173,8 +187,8 @@ function Rooms({ defs, onOpen }: { defs: Defaults; onOpen: (id: number) => void 
     (filter === 'live' ? !!r.liveItem : filter === 'open' ? !r.closed : filter === 'closed' ? r.closed : filter === 'soon' ? !!r.expiresAt && r.expiresAt < soon : true) &&
     (!q.trim() || r.title.toLowerCase().includes(q.trim().toLowerCase()) || r.code.includes(q.trim()))
   const shown = rooms.filter(match)
-  const removeMany = () =>
-    confirm(`고른 방 ${picked.length}개를 지울까요?\n안건과 결과가 모두 사라져요. 마지막 결과는 ‘기록’에 남아요.`) &&
+  const removeMany = async () =>
+    (await ask(`고른 방 ${picked.length}개를 지울까요?\n주제와 결과가 모두 사라져요. 마지막 결과는 ‘기록’에 남아요.`, { ok: '지우기', danger: true })) &&
     act(async () => {
       for (const id of picked) await api(`/api/admin/rooms/${id}`, 'DELETE')
       setPicked([])
@@ -249,7 +263,7 @@ function Rooms({ defs, onOpen }: { defs: Defaults; onOpen: (id: number) => void 
                     <span className="room-code">{r.code}</span>
                     <span className="room-meta">
                       {r.liveItem ? `‘${r.liveItem}’ 픽 받는 중, 지금 접속 ${r.present}명, ` : ''}
-                      {MODE[r.mode]} 방식, 안건 {r.items}개, 들어온 {r.joined}명{r.closed ? ', 끝남' : ''}
+                      {MODE[r.mode]} 방식, 주제 {r.items}개, 들어온 {r.joined}명{r.closed ? ', 끝남' : ''}
                       {r.expiresAt ? `, ${day(r.expiresAt)}에 자동 삭제` : ''}
                     </span>
                   </button>
@@ -288,67 +302,82 @@ export function RoomForm({ defs, initial, fixedMode, host, submitLabel, onSubmit
         </label>
       )}
 
-      {!fixedMode && (
-        <fieldset className="choice">
-          <legend>입장 방식 (만든 뒤에는 바꿀 수 없어요)</legend>
-          <label className="choice-card">
-            <input type="radio" name="mode" checked={f.mode === 'simple'} onChange={() => set('mode', 'simple')} />
-            <span>
-              <strong>간편</strong>방 번호(와 방 비밀번호)로 들어와요. 빠르지만 같은 사람이 다른 기기로 한 번 더 들어올 수 있어서, 정원과 ‘입장 마감’으로 막아요.
-            </span>
-          </label>
-          <label className="choice-card">
-            <input type="radio" name="mode" checked={f.mode === 'strict'} onChange={() => set('mode', 'strict')} />
-            <span>
-              <strong>엄격</strong>한 사람에게 입장 코드를 하나씩 나눠 줘요. 코드 하나로 한 번만 참여할 수 있어서 두 번 고를 수 없어요.
-            </span>
-          </label>
-        </fieldset>
-      )}
-
       <div className="grid2">
         <label className="field">
           <span>방 비밀번호 {fixedMode ? '(바꿀 때만 적어요)' : '(없어도 돼요. 적으면 4자 이상)'}</span>
           <input className="input" type="text" autoComplete="off" maxLength={100} value={f.password} onChange={(e) => set('password', e.target.value)} />
         </label>
-        {f.mode === 'simple' && (
-          <label className="field">
-            <span>정원 (0이면 제한 없음)</span>
-            <input className="input" type="number" min={0} max={100000} value={f.capacity} onChange={(e) => set('capacity', n(e.target.value))} />
-          </label>
-        )}
-        <label className="field">
-          <span>안건 제한 시간 (초, 0이면 없음)</span>
-          <input className="input" type="number" min={0} max={3600} value={f.seconds} onChange={(e) => set('seconds', n(e.target.value))} />
-        </label>
-        <label className="field">
-          <span>접속이 끊긴 사람을 기다리는 시간 (초)</span>
-          <input className="input" type="number" min={3} max={600} value={f.grace} onChange={(e) => set('grace', n(e.target.value))} />
-        </label>
+        <TimeField label="주제 제한 시간" value={f.seconds} onChange={(v) => set('seconds', v)} />
       </div>
 
       {!fixedMode && !f.password && f.mode === 'simple' && <p className="tip">방 비밀번호가 없으면 방 번호를 아는 사람은 누구나 들어올 수 있어요. 모두 들어온 뒤 ‘입장 마감’을 눌러 주세요.</p>}
 
-      <label className="check">
-        <input type="checkbox" checked={f.closeAll} onChange={(e) => set('closeAll', e.target.checked)} />
-        <span>자리에 있는 사람이 모두 픽하면 바로 마감해요 (접속이 끊긴 사람은 위 시간만큼만 기다려요)</span>
-      </label>
+      <details className="fold" open={!host}>
+        <summary>
+          더 자세히 정하기
+          <small>
+            지금: {f.mode === 'simple' ? '방 번호로 입장' : '한 사람에 코드 하나'} · {f.live ? '받는 중에도 결과 공개' : '마감 뒤 결과 공개'} · {f.closeAll ? '모두 픽하면 바로 마감' : '시간이 끝나야 마감'}
+            {f.easy && ' · 쉬운 말'}
+          </small>
+        </summary>
+        <div className="fold-body">
+          {!fixedMode && (
+            <fieldset className="choice">
+              <legend>입장 방식 (만든 뒤에는 바꿀 수 없어요)</legend>
+              <label className="choice-card">
+                <input type="radio" name="mode" checked={f.mode === 'simple'} onChange={() => set('mode', 'simple')} />
+                <span>
+                  <strong>간편</strong>방 번호(와 방 비밀번호)로 들어와요. 빠르지만 같은 사람이 다른 기기로 한 번 더 들어올 수 있어서, 정원과 ‘입장 마감’으로 막아요.
+                </span>
+              </label>
+              <label className="choice-card">
+                <input type="radio" name="mode" checked={f.mode === 'strict'} onChange={() => set('mode', 'strict')} />
+                <span>
+                  <strong>엄격</strong>한 사람에게 입장 코드를 하나씩 나눠 줘요. 코드 하나로 한 번만 참여할 수 있어서 두 번 고를 수 없어요.
+                </span>
+              </label>
+            </fieldset>
+          )}
 
-      <fieldset className="choice">
-        <legend>결과 공개</legend>
-        <label className="choice-card">
-          <input type="radio" name="live" checked={!f.live} onChange={() => set('live', false)} />
-          <span>
-            <strong>마감 뒤에 공개 (권장)</strong>픽 받는 중에는 몇 명이 픽했는지만 보여요. 관리자도 마감 전에는 결과를 볼 수 없어요.
-          </span>
-        </label>
-        <label className="choice-card">
-          <input type="radio" name="live" checked={f.live} onChange={() => set('live', true)} />
-          <span>
-            <strong>픽 받는 중에도 실시간 공개</strong>막대가 바로바로 움직여요. 나중에 픽하는 사람이 영향을 받을 수 있고, 사람이 적으면 누가 무엇을 골랐는지 짐작될 수 있어요.
-          </span>
-        </label>
-      </fieldset>
+          <div className="grid2">
+            {f.mode === 'simple' && (
+              <label className="field">
+                <span>정원 (0이면 제한 없음)</span>
+                <input className="input" type="number" min={0} max={100000} value={f.capacity} onChange={(e) => set('capacity', n(e.target.value))} />
+              </label>
+            )}
+            <label className="field">
+              <span>접속이 끊긴 사람을 기다리는 시간 (초)</span>
+              <input className="input" type="number" min={3} max={600} value={f.grace} onChange={(e) => set('grace', n(e.target.value))} />
+            </label>
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={f.closeAll} onChange={(e) => set('closeAll', e.target.checked)} />
+            <span>자리에 있는 사람이 모두 픽하면 바로 마감해요 (접속이 끊긴 사람은 위 시간만큼만 기다려요)</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={!!f.easy} onChange={(e) => set('easy', e.target.checked)} />
+            <span>쉬운 말 모드 (참여 화면의 글자를 키우고 문장을 짧게 해요. 어린 참여자나 한국어가 서툰 분이 있을 때)</span>
+          </label>
+
+          <fieldset className="choice">
+            <legend>결과 공개</legend>
+            <label className="choice-card">
+              <input type="radio" name="live" checked={!f.live} onChange={() => set('live', false)} />
+              <span>
+                <strong>마감 뒤에 공개 (권장)</strong>픽 받는 중에는 몇 명이 픽했는지만 보여요. 관리자도 마감 전에는 결과를 볼 수 없어요.
+              </span>
+            </label>
+            <label className="choice-card">
+              <input type="radio" name="live" checked={f.live} onChange={() => set('live', true)} />
+              <span>
+                <strong>픽 받는 중에도 실시간 공개</strong>막대가 바로바로 움직여요. 나중에 픽하는 사람이 영향을 받을 수 있고, 사람이 적으면 누가 무엇을 골랐는지 짐작될 수 있어요.
+              </span>
+            </label>
+          </fieldset>
+
+        </div>
+      </details>
 
       <Err text={error} />
       <div className="actions">
@@ -378,6 +407,13 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
   const [watch, setWatch] = useState('')
   // 화면을 셋으로 나눠요: 진행(지금 누를 것) · 준비(미리 해 둘 것) · 설정(가끔 바꿀 것)
   const [view, setView] = useState<'run' | 'prep' | 'set'>('run')
+  // PC 진행 단축키 (빔프로젝터 옆 노트북으로 진행할 때): 스페이스 멈춤 · 다시, N 다음 주제, M 지금 마감, T 30초 더, ? 도움말
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {})
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keys.current(e)
+    addEventListener('keydown', on)
+    return () => removeEventListener('keydown', on)
+  }, [])
   const s = live.state
   if (!live.ready) return <Loading />
   if (!s || !s.admin)
@@ -393,7 +429,22 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
   const hasOpen = s.items.some((i) => i.status === 'open')
   const next = s.items.find((i) => i.status === 'draft')
   const draftIds = s.items.filter((i) => i.status === 'draft').map((i) => i.id)
-  // 끌어서 순서 바꾸기: 끌던 안건을 놓은 안건 자리로 옮겨요
+  const current = s.items.find((i) => i.status === 'open')
+  const openNext = async () => next && (await ask(`다음 주제 ‘${next.title}’ 픽을 열까요?\n열면 주제를 고치거나 지울 수 없어요.`, { ok: '열기' })) && act(() => api(`/api/admin/items/${next.id}/open`, 'POST'))
+  const showKeys = () => tell('진행 단축키 (PC)', ['스페이스: 잠깐 멈추기 · 다시 시작', 'N: 다음 주제 열기', 'M: 지금 마감', 'T: 30초 더', '?: 이 도움말'])
+  keys.current = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || document.querySelector('dialog[open]')) return
+    const t = e.target as HTMLElement
+    if (t.closest('input, textarea, select, [contenteditable="true"]')) return // 글을 쓰는 중에는 그대로
+    if (e.code === 'Space' && t.closest('button, a, summary')) return // 단추에 손이 가 있으면 그 단추를 눌러요
+    const go = (fn: () => unknown) => (e.preventDefault(), fn())
+    if (e.code === 'Space' && current) go(() => act(() => api(`/api/admin/items/${current.id}/${current.paused ? 'resume' : 'pause'}`, 'POST')))
+    else if (e.code === 'KeyN' && next && !current && !s.room.closed) go(openNext)
+    else if (e.code === 'KeyM' && current) go(async () => (await ask('지금 마감할까요?\n아직 픽하지 않은 사람은 픽할 수 없게 돼요.', { ok: '지금 마감' })) && act(() => api(`/api/admin/items/${current.id}/close`, 'POST')))
+    else if (e.code === 'KeyT' && current && (current.closesAt || current.pausedLeft)) go(() => act(() => api(`/api/admin/items/${current.id}/extend`, 'POST', { seconds: 30 })))
+    else if (e.key === '?' || (e.code === 'Slash' && e.shiftKey)) go(showKeys)
+  }
+  // 끌어서 순서 바꾸기: 끌던 주제를 놓은 주제 자리로 옮겨요
   const drop = (onto: number) => {
     if (dragged === null || dragged === onto) return
     const rest = draftIds.filter((x) => x !== dragged)
@@ -407,7 +458,7 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
         <ArrowLeft size={18} aria-hidden="true" />
         {backLabel}
       </button>
-      <Offline online={live.online} />
+      <Offline online={live.online} host />
 
       <section className="room-top">
         <div>
@@ -459,14 +510,14 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
                 {s.room.locked ? '입장 다시 열기' : '입장 마감'}
               </button>
               {a.role !== 'cohost' && (
-                <button data-view="set" className="btn" disabled={busy} onClick={() => confirm('방을 끝낼까요?\n열린 안건은 마감되고, 더는 픽할 수 없어요. 결과는 계속 볼 수 있어요.') && act(() => api(`/api/admin/rooms/${id}/close`, 'POST'))}>
+                <button data-view="set" className="btn" disabled={busy} onClick={async () => (await ask('방을 끝낼까요?\n열린 주제는 마감되고, 더는 픽할 수 없어요. 결과는 계속 볼 수 있어요.', { ok: '방 끝내기', danger: true })) && act(() => api(`/api/admin/rooms/${id}/close`, 'POST'))}>
                   방 끝내기
                 </button>
               )}
             </>
           )}
           {a.role !== 'cohost' && (
-            <button data-view="set" className="btn btn-danger" disabled={busy} onClick={() => confirm('방을 지울까요?\n안건과 결과가 모두 사라져요. 마지막 결과는 ‘기록’에 남아요.') && act(() => api(`/api/admin/rooms/${id}`, 'DELETE')).then((ok) => ok && onBack())}>
+            <button data-view="set" className="btn btn-danger" disabled={busy} onClick={async () => (await ask('방을 지울까요?\n주제와 결과가 모두 사라져요. 마지막 결과는 ‘기록’에 남아요.', { ok: '지우기', danger: true })) && act(() => api(`/api/admin/rooms/${id}`, 'DELETE')).then((ok) => ok && onBack())}>
               <Trash2 size={18} aria-hidden="true" />방 지우기
             </button>
           )}
@@ -479,12 +530,12 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
             className="btn"
             onClick={() => {
               const link = `${defs.siteUrl || location.origin}/observe/${s.room.code}?k=${a.observerKey}`
-              navigator.clipboard?.writeText(link).catch(() => {})
+              navigator.clipboard?.writeText(link).then(() => toast('지켜보기 주소를 복사했어요'), () => {})
               setWatch(link)
             }}
           >
             <Eye size={18} aria-hidden="true" />
-            참관인 주소
+            지켜보기 주소
           </button>
           {a.role !== 'cohost' && !a.rehearsalOf && !s.room.closed && (
             <button
@@ -528,7 +579,7 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
                 <option value={30}>30일 동안</option>
                 <option value={0}>계속</option>
               </select>
-              <button className="btn btn-danger" disabled={busy} onClick={() => confirm('이 방을 지우고, 이 방을 만든 곳에서는 방을 만들지 못하게 막을까요?\n학교처럼 여럿이 같은 인터넷 주소를 쓰는 곳이면 모두가 막혀요.') && act(() => api(`/api/admin/rooms/${id}/block`, 'POST', { days: blockDays })).then((ok) => ok && onBack())}>
+              <button className="btn btn-danger" disabled={busy} onClick={async () => (await ask('이 방을 지우고, 이 방을 만든 곳에서는 방을 만들지 못하게 막을까요?\n학교처럼 여럿이 같은 인터넷 주소를 쓰는 곳이면 모두가 막혀요.', { ok: '지우고 막기', danger: true })) && act(() => api(`/api/admin/rooms/${id}/block`, 'POST', { days: blockDays })).then((ok) => ok && onBack())}>
                 <Ban size={18} aria-hidden="true" />
                 지우고 만든 곳 막기
               </button>
@@ -537,13 +588,13 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
         </div>
         {watch && (
           <p data-view="prep" className="tip" role="status">
-            참관인 주소를 복사했어요. 이 주소를 받은 사람은 진행 상황 · 결과 · 이 방의 기록만 볼 수 있어요: <code className="watch-link">{watch}</code>
+            지켜보기 주소: <code className="watch-link">{watch}</code> 이 주소를 받은 사람은 진행 상황 · 결과 · 이 방의 기록만 볼 수 있어요.
           </p>
         )}
         {a.rehearsalOf && (
           <div className="warn rehearsal">
             <p>
-              <strong>리허설 방이에요.</strong> 가짜 참여자 10명이 안건이 열리면 알아서 골라요. 진짜 방과 똑같이 눌러 보세요. 통계에 들어가지 않고, 하루 뒤 저절로 지워져요.
+              <strong>리허설 방이에요.</strong> 가짜 참여자 10명이 주제가 열리면 알아서 골라요. 진짜 방과 똑같이 눌러 보세요. 통계에 들어가지 않고, 하루 뒤 저절로 지워져요.
             </p>
             {a.role !== 'cohost' && (
               <button
@@ -570,48 +621,67 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
         )}
         {a.expiresAt && (
           <p className="tip">
-            이 방은 {day(a.expiresAt)}에 안건 · 결과와 함께 자동으로 지워져요. 안건을 열거나 마감하면 그날부터 다시 세요. 필요한 결과는 그 전에 내려받거나 인쇄해 두세요.
+            이 방은 {day(a.expiresAt)}에 자동으로 지워져요. 필요한 결과는 그 전에 내려받거나 인쇄해 두세요.
           </p>
         )}
-        {!s.room.closed && !s.room.locked && s.room.mode === 'simple' && <p data-view="run" className="tip">모두 들어왔으면 ‘입장 마감’을 눌러 주세요. 들어온 사람 수가 실제 인원과 같은지 확인하면 중복 입장을 막을 수 있어요.</p>}
+        {!s.room.closed && !s.room.locked && s.room.mode === 'simple' && s.joined > 0 && <p data-view="run" className="tip">모두 들어왔으면 ‘입장 마감’을 눌러 주세요. 들어온 사람 수가 실제 인원과 같으면 겹쳐 들어온 사람이 없는 거예요.</p>}
         <Err text={error} />
       </section>
 
+      {s.hands && s.hands.question + s.hands.more > 0 && (
+        <div data-view="run" className="warn hands-host" role="status">
+          <p>
+            <strong>조용히 손든 사람이 있어요.</strong> {[s.hands.question && `질문 있어요 ${s.hands.question}명`, s.hands.more && `더 설명해 주세요 ${s.hands.more}명`].filter(Boolean).join(', ')}
+          </p>
+          <button className="btn" disabled={busy} onClick={() => act(() => api(`/api/admin/rooms/${id}/hands`, 'DELETE'))}>
+            대답했어요 (손 내리기)
+          </button>
+        </div>
+      )}
       <section data-view="run" className="card">
         <div className="ad-head">
-          <h2>안건</h2>
-          {next && !hasOpen && !s.room.closed && (
-            <button className="btn btn-primary" disabled={busy} onClick={() => confirm(`다음 안건 ‘${next.title}’ 픽을 열까요?\n열면 안건을 고치거나 지울 수 없어요.`) && act(() => api(`/api/admin/items/${next.id}/open`, 'POST'))}>
-              <SkipForward size={18} aria-hidden="true" />
-              다음 안건 열기
-            </button>
-          )}
+          <h2>주제</h2>
           <div className="actions">
+            {next && !hasOpen && !s.room.closed && (
+              <button className="btn btn-primary" disabled={busy} onClick={openNext}>
+                <SkipForward size={18} aria-hidden="true" />
+                다음 주제 열기
+              </button>
+            )}
             {s.items.some((i) => i.status === 'closed') && (
-              <>
-                <a className="btn" href={`/api/admin/rooms/${id}/results.csv`} download>
+              <details className="menu">
+                <summary className="btn">
                   <Download size={18} aria-hidden="true" />
-                  결과 내려받기
-                </a>
-                <button className="btn" onClick={() => printAs('results')}>
-                  <Printer size={18} aria-hidden="true" />
-                  결과 인쇄
-                </button>
-                <button className="btn" onClick={() => printAs('minutes')}>
-                  <Printer size={18} aria-hidden="true" />
-                  회의록 인쇄
-                </button>
-              </>
+                  결과 남기기
+                </summary>
+                <div className="menu-list" onClick={(e) => e.currentTarget.parentElement?.removeAttribute('open')}>
+                  <a className="btn" href={`/api/admin/rooms/${id}/results.csv`} download>
+                    <Download size={18} aria-hidden="true" />
+                    결과 내려받기
+                  </a>
+                  <button className="btn" onClick={() => printAs('results')}>
+                    <Printer size={18} aria-hidden="true" />
+                    결과 인쇄
+                  </button>
+                  <button className="btn" onClick={() => printAs('minutes')}>
+                    <Printer size={18} aria-hidden="true" />
+                    결과 정리 인쇄
+                  </button>
+                </div>
+              </details>
             )}
             {!adding && !s.room.closed && (
               <button className="btn" onClick={() => setAdding(true)}>
                 <Plus size={18} aria-hidden="true" />
-                안건 더하기
+                주제 더하기
               </button>
             )}
+            <button className="btn btn-icon keys-hint" aria-label="진행 단축키 보기" title="진행 단축키 (?)" onClick={showKeys}>
+              <Keyboard size={18} aria-hidden="true" />
+            </button>
           </div>
         </div>
-        {s.items.length === 0 && !adding && <p className="empty">안건을 더하고 ‘픽 열기’를 누르면 바로 시작돼요. 안건은 한 번에 하나씩 열려요.</p>}
+        {s.items.length === 0 && !adding && <p className="empty">주제를 더하고 ‘픽 열기’를 누르면 바로 시작돼요. 주제는 한 번에 하나씩 열려요.</p>}
         <ol className="items">
           {s.items.map((it) => (
             <ItemCard key={it.id} item={it} state={s} canOpen={!hasOpen && !s.room.closed} refresh={live.refresh} drag={draftIds.length > 1 && it.status === 'draft' ? { start: () => setDragged(it.id), drop: () => drop(it.id), on: dragged === it.id } : undefined} />
@@ -620,7 +690,7 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
         {adding && (
           <ItemForm
             roomSeconds={a.seconds}
-            submitLabel="안건 더하기"
+            submitLabel="주제 더하기"
             onCancel={() => setAdding(false)}
             onSubmit={async (f) => {
               await api(`/api/admin/rooms/${id}/items`, 'POST', f)
@@ -649,7 +719,7 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
           <RoomForm
             defs={defs}
             fixedMode
-            initial={{ title: s.room.title, mode: s.room.mode, capacity: a.capacity, seconds: a.seconds, grace: a.grace, closeAll: a.closeAll, live: s.room.live }}
+            initial={{ title: s.room.title, mode: s.room.mode, capacity: a.capacity, seconds: a.seconds, grace: a.grace, closeAll: a.closeAll, live: s.room.live, easy: s.room.easy }}
             submitLabel="설정 저장"
             onSubmit={async (f) => {
               await api(`/api/admin/rooms/${id}`, 'PUT', f)
@@ -662,6 +732,7 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
     </div>
   )
 }
+
 
 function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: Live; canOpen: boolean; refresh: () => unknown; drag?: { start: () => void; drop: () => void; on: boolean } }) {
   const { act, error, busy } = useAct(refresh)
@@ -679,7 +750,7 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
         <ItemForm
           roomSeconds={item.seconds}
           initial={{ title: item.title, note: item.note, options: item.options.map((o) => o.label), maxPick: item.maxPick, seconds: item.seconds, rule: item.rule, practice: item.practice, quorum: item.quorum, basis: item.basis, shuffle: item.shuffle }}
-          submitLabel="안건 저장"
+          submitLabel="주제 저장"
           onCancel={() => setEditing(false)}
           onSubmit={async (f) => {
             await api(`/api/admin/items/${item.id}`, 'PUT', f)
@@ -712,30 +783,39 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
         <>
           <p className="item-opts">{item.options.map((o) => o.label).join(' / ')}</p>
           <p className="item-meta">
-            {item.maxPick === 1 ? '하나만 고르기' : `${item.maxPick}개까지 고르기`}, {item.seconds ? `제한 시간 ${item.seconds}초` : '제한 시간 없음'}
-            {item.rule !== 'none' && `, ‘${item.options[0]?.label}’ ${item.rule === 'majority' ? '과반' : '3분의 2 이상'}이면 가결 (${BASIS[item.basis]} 기준)`}
-            {item.quorum > 0 && `, 정족수 ${item.quorum}명`}
+            {item.maxPick === 1 ? '하나만 고르기' : `${item.maxPick}개까지 고르기`}, {item.seconds ? `제한 시간 ${dur(item.seconds)}` : '제한 시간 없음'}
+            {item.rule !== 'none' && `, ‘${item.options[0]?.label}’ ${item.rule === 'majority' ? '절반을 넘으면' : '3분의 2 이상이면'} 통과 (${BASIS[item.basis]} 기준)`}
+            {item.quorum > 0 && `, 최소 참여 인원 ${item.quorum}명`}
             {item.shuffle && ', 선택지 순서 섞기'}
           </p>
           <div className="actions actions-start">
-            <button className="btn btn-primary" disabled={busy || !canOpen} onClick={() => confirm(`‘${item.title}’ 픽을 열까요?\n열면 안건을 고치거나 지울 수 없어요.`) && call('/open')}>
+            <button className="btn" disabled={busy || !canOpen} onClick={async () => (await ask(`‘${item.title}’ 픽을 열까요?\n열면 주제를 고치거나 지울 수 없어요.`, { ok: '열기' })) && call('/open')}>
               <Play size={18} aria-hidden="true" />
               픽 열기
             </button>
-            <button className="btn" disabled={busy} onClick={() => setEditing(true)}>
-              <Pencil size={18} aria-hidden="true" />
-              고치기
-            </button>
-            <button className="btn" disabled={busy} onClick={() => confirm('이 안건을 지울까요?') && call('', 'DELETE')}>
-              <Trash2 size={18} aria-hidden="true" />
-              지우기
-            </button>
-            <button className="btn btn-icon" disabled={busy} aria-label="순서 위로" onClick={() => act(() => api(`/api/admin/items/${item.id}/move`, 'POST', { dir: 'up' }))}>
-              <ArrowUp size={18} aria-hidden="true" />
-            </button>
-            <button className="btn btn-icon" disabled={busy} aria-label="순서 아래로" onClick={() => act(() => api(`/api/admin/items/${item.id}/move`, 'POST', { dir: 'down' }))}>
-              <ArrowDown size={18} aria-hidden="true" />
-            </button>
+            <details className="menu menu-left">
+              <summary className="btn btn-icon" aria-label="이 주제 더 보기 (고치기 · 지우기 · 순서)" title="고치기 · 지우기 · 순서">
+                <Ellipsis size={18} aria-hidden="true" />
+              </summary>
+              <div className="menu-list" onClick={(e) => e.currentTarget.parentElement?.removeAttribute('open')}>
+                <button className="btn" disabled={busy} onClick={() => setEditing(true)}>
+                  <Pencil size={18} aria-hidden="true" />
+                  고치기
+                </button>
+                <button className="btn" disabled={busy} onClick={() => act(() => api(`/api/admin/items/${item.id}/move`, 'POST', { dir: 'up' }))}>
+                  <ArrowUp size={18} aria-hidden="true" />
+                  위로 옮기기
+                </button>
+                <button className="btn" disabled={busy} onClick={() => act(() => api(`/api/admin/items/${item.id}/move`, 'POST', { dir: 'down' }))}>
+                  <ArrowDown size={18} aria-hidden="true" />
+                  아래로 옮기기
+                </button>
+                <button className="btn menu-danger" disabled={busy} onClick={async () => (await ask('이 주제를 지울까요?', { ok: '지우기', danger: true })) && call('', 'DELETE')}>
+                  <Trash2 size={18} aria-hidden="true" />
+                  지우기
+                </button>
+              </div>
+            </details>
           </div>
           {(item.openAt || item.closeAt) && (
             <p className="sched">
@@ -748,25 +828,6 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
               </button>
             </p>
           )}
-          {!state.room.closed && (
-            <details className="sched-form">
-              <summary>예약 (정한 때에 저절로 열고 마감하기)</summary>
-              <div className="sched">
-                <label className="field field-inline">
-                  <span>예약 열기</span>
-                  <input className="input" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
-                </label>
-                <label className="field field-inline">
-                  <span>예약 마감</span>
-                  <input className="input" type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} />
-                </label>
-                <button className="btn btn-small" disabled={busy || (!at && !until)} onClick={() => schedule({ ...(at ? { at: new Date(at).getTime() } : {}), ...(until ? { closeAt: new Date(until).getTime() } : {}) })}>
-                  예약하기
-                </button>
-              </div>
-              <p className="tip">둘 중 하나만 정해도 돼요. 마감 때를 정하면 제한 시간과 상관없이 그때까지 열어 두고, 모두 픽해도 일찍 닫지 않아요. 며칠에 걸친 픽에 쓰세요. 7일 넘게 열어 둘 때는 ‘엄격’ 방식 방이 안전해요.</p>
-            </details>
-          )}
         </>
       )}
 
@@ -774,15 +835,19 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
         <>
           <TimeLeft item={item} skew={state.skew} />
           <p className="item-live">
-            <strong>{item.voted}명</strong> 픽 상자 (지금 접속 {state.present}명)
+            <strong>{item.voted}명</strong>이 픽했어요 (지금 접속 {state.present}명)
           </p>
           {item.revealed ? <Result item={item} /> : <p className="tip">결과는 마감 뒤에 공개돼요. 지금은 관리자도 볼 수 없어요.</p>}
           <div className="actions actions-start">
-            <button className="btn btn-primary" disabled={busy} onClick={() => confirm('지금 마감할까요?\n아직 픽하지 않은 사람은 픽할 수 없게 돼요.') && call('/close')}>
+            <button className="btn btn-primary" disabled={busy} onClick={async () => (await ask('지금 마감할까요?\n아직 픽하지 않은 사람은 픽할 수 없게 돼요.', { ok: '지금 마감' })) && call('/close')}>
               <Square size={18} aria-hidden="true" />
               지금 마감
             </button>
-            {item.closesAt && (
+            <button className="btn" disabled={busy} title={item.paused ? '남은 시간부터 이어서 받아요' : '남은 시간을 얼리고 잠깐 픽을 멈춰요 (설명을 더 할 때)'} onClick={() => call(item.paused ? '/resume' : '/pause')}>
+              {item.paused ? <Play size={18} aria-hidden="true" /> : <Pause size={18} aria-hidden="true" />}
+              {item.paused ? '다시 시작' : '잠깐 멈추기'}
+            </button>
+            {(item.closesAt || item.pausedLeft) && (
               <button className="btn" disabled={busy} onClick={() => act(() => api(`/api/admin/items/${item.id}/extend`, 'POST', { seconds: 30 }))}>
                 <Plus size={18} aria-hidden="true" />
                 30초 더
@@ -801,7 +866,7 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
           <Result item={item} />
           {!!item.objectionNotes?.length && (
             <div className="objections">
-              <strong>이의 {item.objectionNotes.length}건</strong>
+              <strong>확인 요청 {item.objectionNotes.length}건</strong>
               <ul>
                 {item.objectionNotes.map((o, i) => (
                   <li key={i}>
@@ -811,23 +876,48 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
               </ul>
             </div>
           )}
-          {!state.room.closed && (
-            <div className="actions actions-start">
+          <div className="actions actions-start no-print">
+            {tied && !state.room.closed && (
+              <button className="btn btn-primary" disabled={busy} onClick={() => call('/runoff')}>
+                <Scale size={18} aria-hidden="true" />
+                동점인 선택지로 다시 고르기
+              </button>
+            )}
+            <button className="btn" onClick={() => resultCard(item, state.room.title, state.org.name)}>
+              <ImageDown size={18} aria-hidden="true" />
+              결과 그림 받기
+            </button>
+            {!state.room.closed && (
               <button className="btn" disabled={busy} onClick={() => call('/copy')}>
                 <Copy size={18} aria-hidden="true" />
                 복사해서 다시 픽
               </button>
-              {tied && (
-                <button className="btn btn-primary" disabled={busy} onClick={() => call('/runoff')}>
-                  <Scale size={18} aria-hidden="true" />
-                  동점인 선택지로 결선 만들기
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
-      <Memo item={item} />
+      <div className="item-more">
+        {item.status === 'draft' && !state.room.closed && (
+          <details className="sched-form">
+            <summary>예약 (저절로 열고 마감하기)</summary>
+            <div className="sched">
+              <label className="field field-inline">
+                <span>예약 열기</span>
+                <input className="input" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
+              </label>
+              <label className="field field-inline">
+                <span>예약 마감</span>
+                <input className="input" type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} />
+              </label>
+              <button className="btn btn-small" disabled={busy || (!at && !until)} onClick={() => schedule({ ...(at ? { at: new Date(at).getTime() } : {}), ...(until ? { closeAt: new Date(until).getTime() } : {}) })}>
+                예약하기
+              </button>
+            </div>
+            <p className="tip">둘 중 하나만 정해도 돼요. 마감 때를 정하면 제한 시간과 상관없이 그때까지 열어 두고, 모두 픽해도 일찍 닫지 않아요. 며칠에 걸친 픽에 쓰세요. 7일 넘게 열어 둘 때는 ‘엄격’ 방식 방이 안전해요.</p>
+          </details>
+        )}
+        <Memo item={item} />
+      </div>
       <Err text={error} />
     </li>
   )
@@ -836,24 +926,137 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
 /** 진행자 메모: 진행자만 보는 한마디. 칸을 벗어나면 저절로 저장돼요. */
 function Memo({ item }: { item: Item }) {
   const [text, setText] = useState(item.memo ?? '')
-  const [saved, setSaved] = useState(false)
   const save = () => {
     if (text === (item.memo ?? '')) return
-    api(`/api/admin/items/${item.id}/memo`, 'POST', { memo: text }).then(() => setSaved(true), () => {})
+    api(`/api/admin/items/${item.id}/memo`, 'POST', { memo: text }).then(() => toast('메모를 저장했어요'), () => {})
   }
   return (
     <details className="memo no-print" open={!!item.memo}>
-      <summary>진행자 메모 {saved && <span role="status">저장했어요</span>}</summary>
-      <textarea className="input" rows={2} maxLength={1000} placeholder="진행할 때 볼 메모 (참여자에게는 안 보여요)" aria-label="진행자 메모" value={text} onChange={(e) => (setText(e.target.value), setSaved(false))} onBlur={save} />
+      <summary>진행자 메모</summary>
+      <textarea className="input" rows={2} maxLength={1000} placeholder="진행할 때 볼 메모 (참여자에게는 안 보여요)" aria-label="진행자 메모" value={text} onChange={(e) => setText(e.target.value)} onBlur={save} />
     </details>
   )
 }
 
 type ItemInput = { title: string; note: string; options: string[]; maxPick: number; seconds: number; rule: Item['rule']; practice: boolean; quorum?: number; basis?: Item['basis']; shuffle?: boolean }
+/** 제한 시간: 자주 쓰는 길이에서 고르고, 없으면 ‘직접 적기’로 초를 적어요 */
+const TIMES: [number, string][] = [[30, '30초'], [60, '1분'], [120, '2분'], [180, '3분'], [300, '5분'], [600, '10분'], [0, '제한 없음']]
+function TimeField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const [own, setOwn] = useState(!TIMES.some(([t]) => t === value))
+  return (
+    <div className="field">
+      <label htmlFor={`time-${label}`}>
+        <span>{label}</span>
+      </label>
+      <div className="time-pick">
+        <select
+          id={`time-${label}`}
+          className="input"
+          value={own ? 'own' : String(value)}
+          onChange={(e) => {
+            if (e.target.value === 'own') return setOwn(true)
+            setOwn(false)
+            onChange(Number(e.target.value))
+          }}
+        >
+          {TIMES.map(([t, name]) => (
+            <option key={t} value={t}>
+              {name}
+            </option>
+          ))}
+          <option value="own">직접 적기</option>
+        </select>
+        {own && (
+          <label className="time-own">
+            <input className="input" type="number" min={0} max={3600} aria-label={`${label} (초)`} value={value} onChange={(e) => onChange(Math.max(0, Math.min(3600, Math.floor(Number(e.target.value) || 0))))} />
+            <span>초</span>
+          </label>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 선택지: 칸마다 하나. 엔터를 누르면 다음 칸이 생기고, 여러 줄을 붙여 넣으면 한 줄에 하나씩 나눠 들어가요. */
+const MAX_OPTIONS = 30
+function OptionsEditor({ list, onChange }: { list: string[]; onChange: (l: string[]) => void }) {
+  const boxes = useRef<(HTMLInputElement | null)[]>([])
+  const [focus, setFocus] = useState<number | null>(null)
+  useEffect(() => {
+    if (focus === null) return
+    boxes.current[focus]?.focus()
+    setFocus(null)
+  }, [focus])
+  const put = (at: number, values: string[], replace = 0) => {
+    const next = [...list]
+    next.splice(at, replace, ...values)
+    onChange(next.slice(0, MAX_OPTIONS))
+    setFocus(Math.min(at + values.length - 1, MAX_OPTIONS - 1))
+  }
+  const drop = (i: number) => {
+    onChange(list.length > 2 ? list.filter((_, j) => j !== i) : list.map((x, j) => (j === i ? '' : x)))
+    setFocus(Math.max(0, i - 1))
+  }
+  const filled = list.map((x) => x.trim()).filter(Boolean)
+  const twice = filled.find((x, i) => filled.indexOf(x) !== i)
+  return (
+    <fieldset className="opts-edit">
+      <legend>선택지 ({filled.length}개, 두 개 이상)</legend>
+      <ol>
+        {list.map((v, i) => (
+          <li key={i} className="opt-row">
+            <span className="opt-num" aria-hidden="true">
+              {i + 1}
+            </span>
+            <input
+              ref={(el) => {
+                boxes.current[i] = el
+              }}
+              className="input"
+              aria-label={`선택지 ${i + 1}`}
+              maxLength={80}
+              placeholder={i === 0 ? '예: 떡볶이' : i === 1 ? '예: 피자' : ''}
+              value={v}
+              onChange={(e) => onChange(list.map((x, j) => (j === i ? e.target.value : x)))}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return // 한글을 쓰는 중의 엔터는 글자를 마무리하는 것
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (list.length < MAX_OPTIONS) put(i + 1, [''])
+                } else if (e.key === 'Backspace' && !v && list.length > 2) {
+                  e.preventDefault()
+                  drop(i)
+                }
+              }}
+              onPaste={(e) => {
+                const lines = e.clipboardData.getData('text').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
+                if (lines.length < 2) return
+                e.preventDefault()
+                put(i, lines, v ? 0 : 1)
+              }}
+            />
+            <button type="button" className="btn btn-icon btn-quiet" aria-label={`선택지 ${i + 1} 빼기`} disabled={list.length <= 2 && !v} onClick={() => drop(i)}>
+              <X size={18} aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ol>
+      {twice && <p className="error">‘{twice}’ 이(가) 두 번 있어요. 하나는 빼 주세요.</p>}
+      <div className="actions actions-start">
+        <button type="button" className="btn btn-small" disabled={list.length >= MAX_OPTIONS} onClick={() => put(list.length, [''])}>
+          <Plus size={18} aria-hidden="true" />
+          선택지 더하기
+        </button>
+        <span className="tip">엔터를 누르면 다음 칸이 생겨요. 여러 줄을 붙여 넣으면 나눠 들어가요.</span>
+      </div>
+    </fieldset>
+  )
+}
+
 function ItemForm({ initial, roomSeconds, submitLabel, onSubmit, onCancel }: { initial?: ItemInput; roomSeconds: number; submitLabel: string; onSubmit: (f: ItemInput) => Promise<unknown>; onCancel: () => void }) {
   const [title, setTitle] = useState(initial?.title ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
-  const [options, setOptions] = useState((initial?.options ?? ['찬성', '반대']).join('\n'))
+  const [opts, setOpts] = useState<string[]>(initial?.options?.length ? initial.options : ['', ''])
   const [maxPick, setMaxPick] = useState(initial?.maxPick ?? 1)
   const [seconds, setSeconds] = useState(initial?.seconds ?? roomSeconds)
   const [rule, setRule] = useState<Item['rule']>(initial?.rule ?? 'none')
@@ -861,88 +1064,100 @@ function ItemForm({ initial, roomSeconds, submitLabel, onSubmit, onCancel }: { i
   const [quorum, setQuorum] = useState(initial?.quorum ?? 0)
   const [basis, setBasis] = useState<Item['basis']>(initial?.basis ?? 'voted')
   const [shuffle, setShuffle] = useState(initial?.shuffle ?? false)
+  // 기본값에서 벗어난 것이 있으면 자세한 칸을 펼쳐 둬요
+  const [more] = useState(!!initial && (!!initial.note || (initial.rule ?? 'none') !== 'none' || !!initial.quorum || !!initial.shuffle || !!initial.practice))
   const { act, error, busy } = useAct()
   // 자주 쓰는 모양을 한 번에 채워요
   const fill = (o: string, r: Item['rule'], t?: string) => {
-    setOptions(o)
+    setOpts(o.split('\n'))
     setRule(r)
     setMaxPick(1)
     setPractice(!!t)
     if (t) setTitle(t)
   }
-  const list = options.split('\n').map((s) => s.trim()).filter(Boolean)
+  const list = opts.map((s) => s.trim()).filter(Boolean)
   return (
     <form
       className="form form-inset"
       onSubmit={(e) => {
         e.preventDefault()
-        act(() => onSubmit({ title, note, options: list, maxPick: Math.min(maxPick, Math.max(1, list.length)), seconds, rule: maxPick === 1 ? rule : 'none', practice, quorum, shuffle, basis: maxPick === 1 && rule !== 'none' ? basis : 'voted' }))
+        act(async () => {
+          if (list.length < 2) throw new Error('선택지를 두 개 이상 적어 주세요')
+          if (new Set(list).size !== list.length) throw new Error('같은 선택지가 두 번 있어요. 하나는 빼 주세요')
+          return onSubmit({ title, note, options: list, maxPick: Math.min(maxPick, Math.max(1, list.length)), seconds, rule: maxPick === 1 ? rule : 'none', practice, quorum, shuffle, basis: maxPick === 1 && rule !== 'none' ? basis : 'voted' })
+        })
       }}
     >
       <div className="presets">
-        <span>빠른 틀</span>
+        <span>자주 쓰는 모양</span>
         <button type="button" className="btn btn-small" onClick={() => fill('찬성\n반대', 'none')}>
           찬성 / 반대
         </button>
         <button type="button" className="btn btn-small" onClick={() => fill('찬성\n반대', 'majority')}>
-          찬성 / 반대 (과반이면 가결)
+          찬성 / 반대 (절반을 넘으면 통과)
         </button>
         <button type="button" className="btn btn-small" onClick={() => fill('잘 보여요\n잘 안 보여요', 'none', '연습 픽: 화면이 잘 보이나요?')}>
           연습 픽
         </button>
       </div>
       <label className="field">
-        <span>안건 제목</span>
+        <span>주제 제목</span>
         <input className="input" maxLength={100} placeholder="예: 축제 주제를 골라 주세요" value={title} onChange={(e) => setTitle(e.target.value)} required autoFocus />
       </label>
-      <label className="field">
-        <span>설명 (없어도 돼요)</span>
-        <input className="input" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
-      <label className="field">
-        <span>선택지 (한 줄에 하나씩, 지금 {list.length}개)</span>
-        <textarea className="input" rows={Math.max(3, list.length + 1)} value={options} onChange={(e) => setOptions(e.target.value)} />
-      </label>
+      <OptionsEditor list={opts} onChange={setOpts} />
       <div className="grid2">
         <label className="field">
           <span>한 사람이 고를 수 있는 개수</span>
           <input className="input" type="number" min={1} max={Math.max(1, list.length)} value={maxPick} onChange={(e) => setMaxPick(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
         </label>
-        <label className="field">
-          <span>제한 시간 (초, 0이면 없음)</span>
-          <input className="input" type="number" min={0} max={3600} value={seconds} onChange={(e) => setSeconds(Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
-        </label>
+        <TimeField label="제한 시간" value={seconds} onChange={setSeconds} />
       </div>
-      <label className="field">
-        <span>가결 기준 (하나만 고르는 안건에서, 첫 번째 선택지를 찬성으로 봐요)</span>
-        <select className="input" value={maxPick === 1 ? rule : 'none'} disabled={maxPick !== 1} onChange={(e) => setRule(e.target.value as Item['rule'])}>
-          <option value="none">판정하지 않기 (받은 픽만 보여 주기)</option>
-          <option value="majority">픽한 사람의 과반이면 가결</option>
-          <option value="two_thirds">픽한 사람의 3분의 2 이상이면 가결</option>
-        </select>
-      </label>
-      <div className="grid2">
-        <label className="field">
-          <span>가결을 따질 모수</span>
-          <select className="input" value={basis} disabled={maxPick !== 1 || rule === 'none'} onChange={(e) => setBasis(e.target.value as Item['basis'])}>
-            <option value="voted">픽한 사람 (기권 포함)</option>
-            <option value="valid">기권을 뺀 사람</option>
-            <option value="joined">들어온 사람 전체</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>정족수 (이만큼 들어와야 열 수 있어요, 0이면 없음)</span>
-          <input className="input" type="number" min={0} max={100000} value={quorum} onChange={(e) => setQuorum(Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
-        </label>
-      </div>
-      <label className="check">
-        <input type="checkbox" checked={shuffle} onChange={(e) => setShuffle(e.target.checked)} />
-        <span>선택지 순서를 사람마다 섞어요 (맨 위 선택지가 유리해지지 않게. 결과는 적은 순서대로 나와요)</span>
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={practice} onChange={(e) => setPractice(e.target.checked)} />
-        <span>연습 픽이에요 (‘연습’ 표시가 붙고, 결과에도 연습으로 적혀요)</span>
-      </label>
+      <details className="fold" open={more}>
+        <summary>
+          더 자세히 정하기
+          <small>
+            지금: {maxPick === 1 && rule !== 'none' ? (rule === 'majority' ? '절반을 넘으면 통과' : '3분의 2 이상이면 통과') : '통과 여부 안 따짐'}
+            {shuffle && ' · 순서 섞기'}
+            {practice && ' · 연습'}
+          </small>
+        </summary>
+        <div className="fold-body">
+          <label className="field">
+            <span>설명 (없어도 돼요)</span>
+            <input className="input" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>통과 기준 (하나만 고르는 주제에서, 첫 번째 선택지를 찬성으로 봐요)</span>
+            <select className="input" value={maxPick === 1 ? rule : 'none'} disabled={maxPick !== 1} onChange={(e) => setRule(e.target.value as Item['rule'])}>
+              <option value="none">통과 여부를 따지지 않기 (받은 픽만 보여 주기)</option>
+              <option value="majority">픽한 사람의 절반을 넘으면 통과</option>
+              <option value="two_thirds">픽한 사람의 3분의 2 이상이면 통과</option>
+            </select>
+          </label>
+          <div className="grid2">
+            <label className="field">
+              <span>통과를 따질 기준 인원</span>
+              <select className="input" value={basis} disabled={maxPick !== 1 || rule === 'none'} onChange={(e) => setBasis(e.target.value as Item['basis'])}>
+                <option value="voted">픽한 사람 (건너뛴 사람 포함)</option>
+                <option value="valid">실제로 고른 사람</option>
+                <option value="joined">들어온 사람 전체</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>최소 참여 인원 (이만큼 들어와야 열 수 있어요, 0이면 없음)</span>
+              <input className="input" type="number" min={0} max={100000} value={quorum} onChange={(e) => setQuorum(Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
+            </label>
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={shuffle} onChange={(e) => setShuffle(e.target.checked)} />
+            <span>선택지 순서를 사람마다 섞어요 (맨 위 선택지가 유리해지지 않게. 결과는 적은 순서대로 나와요)</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={practice} onChange={(e) => setPractice(e.target.checked)} />
+            <span>연습 픽이에요 (‘연습’ 표시가 붙고, 결과에도 연습으로 적혀요)</span>
+          </label>
+        </div>
+      </details>
       <Err text={error} />
       <div className="actions">
         <button type="button" className="btn" onClick={onCancel}>
@@ -956,7 +1171,7 @@ function ItemForm({ initial, roomSeconds, submitLabel, onSubmit, onCancel }: { i
   )
 }
 
-// ── 안건 묶음: 자주 쓰는 안건을 이름 붙여 저장해 두고 다른 방에서 불러와요 ──
+// ── 주제 묶음: 자주 쓰는 주제를 이름 붙여 저장해 두고 다른 방에서 불러와요 ──
 // 관리자는 서버에 저장해 어느 기기에서나 같이 쓰고, 방장(계정이 없어요)은 이 브라우저에 저장하고 파일로 옮겨요.
 type Bundle = { id?: number; name: string; items: ItemInput[] }
 const BUNDLES = 'mypick-bundles'
@@ -991,7 +1206,7 @@ function Templates({ roomId, items, server, refresh }: { roomId: number; items: 
     const bundle = { name: title, items: items.map((i) => ({ title: i.title, note: i.note, options: i.options.map((o) => o.label), maxPick: i.maxPick, seconds: i.seconds, rule: i.rule, practice: i.practice, quorum: i.quorum, basis: i.basis, shuffle: i.shuffle })) }
     const done = () => {
       setName('')
-      setNote(`‘${title}’ 묶음에 안건 ${items.length}개를 저장했어요.`)
+      toast(`‘${title}’ 묶음에 주제 ${items.length}개를 저장했어요`)
     }
     if (server) act(() => api('/api/admin/bundles', 'POST', bundle).then(reload)).then((ok) => ok && done())
     else {
@@ -1004,13 +1219,13 @@ function Templates({ roomId, items, server, refresh }: { roomId: number; items: 
     act(async () => {
       for (const it of b.items) await api(`/api/admin/rooms/${roomId}/items`, 'POST', it)
       await refresh()
-      setNote(`‘${b.name}’ 묶음의 안건 ${b.items.length}개를 더했어요.`)
+      setNote(`‘${b.name}’ 묶음의 주제 ${b.items.length}개를 더했어요.`)
     })
   // 파일로 옮기기 (방장: 다른 기기에서 쓰거나 다른 사람에게 줄 때)
   const exportFile = () => {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' }))
-    a.download = 'mypick-안건묶음.json'
+    a.download = 'mypick-주제묶음.json'
     a.click()
     URL.revokeObjectURL(a.href)
   }
@@ -1022,25 +1237,25 @@ function Templates({ roomId, items, server, refresh }: { roomId: number; items: 
       keepLocal([...good, ...list.filter((b) => !good.some((g: Bundle) => g.name === b.name))].slice(0, 30))
       setNote(`묶음 ${good.length}개를 가져왔어요.`)
     } catch {
-      setNote('안건 묶음 파일이 아니에요.')
+      setNote('주제 묶음 파일이 아니에요.')
     }
   }
   return (
     <details className="card no-print">
-      <summary>안건 묶음 (자주 쓰는 안건 저장 · 불러오기)</summary>
-      <p className="tip">{server ? '매번 같은 안건으로 회의한다면 묶음으로 저장해 두세요. 서버에 저장돼서 어느 기기에서나, 다른 관리자도 불러올 수 있어요.' : '매번 같은 안건으로 회의한다면 묶음으로 저장해 두세요. 이 브라우저에 저장돼요. 다른 기기에서 쓰려면 파일로 내보냈다가 가져오세요.'}</p>
+      <summary>주제 묶음 (자주 쓰는 주제 저장 · 불러오기)</summary>
+      <p className="tip">{server ? '매번 같은 주제로 회의한다면 묶음으로 저장해 두세요. 서버에 저장돼서 어느 기기에서나, 다른 관리자도 불러올 수 있어요.' : '매번 같은 주제로 회의한다면 묶음으로 저장해 두세요. 이 브라우저에 저장돼요. 다른 기기에서 쓰려면 파일로 내보냈다가 가져오세요.'}</p>
       {list.length > 0 && (
         <ul className="bundles">
           {list.map((b) => (
             <li key={b.name}>
               <span>
-                <strong>{b.name}</strong> 안건 {b.items.length}개
+                <strong>{b.name}</strong> 주제 {b.items.length}개
               </span>
               <button className="btn btn-small" disabled={busy} onClick={() => load(b)}>
                 <Plus size={16} aria-hidden="true" />
                 불러오기
               </button>
-              <button className="btn btn-small" aria-label={`${b.name} 묶음 지우기`} onClick={() => confirm(`‘${b.name}’ 묶음을 지울까요?`) && remove(b)}>
+              <button className="btn btn-small" aria-label={`${b.name} 묶음 지우기`} onClick={async () => (await ask(`‘${b.name}’ 묶음을 지울까요?`, { ok: '지우기', danger: true })) && remove(b)}>
                 <Trash2 size={16} aria-hidden="true" />
               </button>
             </li>
@@ -1053,7 +1268,7 @@ function Templates({ roomId, items, server, refresh }: { roomId: number; items: 
           <input className="input" maxLength={40} placeholder="예: 정기 회의" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <button className="btn" disabled={busy || !name.trim() || !items.length} onClick={save}>
-          지금 안건 {items.length}개를 묶음으로 저장
+          지금 주제 {items.length}개를 묶음으로 저장
         </button>
       </div>
       {!server && (
@@ -1085,14 +1300,14 @@ function Templates({ roomId, items, server, refresh }: { roomId: number; items: 
   )
 }
 
-// ── 회의록: 화면에는 안 보이고 ‘회의록 인쇄’를 누르면 이것만 종이에 나와요 ──
+// ── 결과 정리: 화면에는 안 보이고 ‘결과 정리 인쇄’를 누르면 이것만 종이에 나와요 ──
 function Minutes({ s }: { s: Live }) {
   const closed = s.items.filter((i) => i.status === 'closed' && !i.practice)
   if (!closed.length) return null
   const when = (t: number | null) => (t ? new Date(t).toLocaleString('ko-KR', { dateStyle: 'long', timeStyle: 'short' }) : '')
   return (
     <section className="minutes">
-      <h1>{s.room.title} My Pick 결과 회의록</h1>
+      <h1>{s.room.title} My Pick 결과 정리</h1>
       <dl>
         <div>
           <dt>주관</dt>
@@ -1119,7 +1334,7 @@ function Minutes({ s }: { s: Live }) {
         {closed.map((it, n) => (
           <li key={it.id}>
             <h2>
-              제{n + 1}호 안건. {it.title}
+              제{n + 1}호 주제. {it.title}
             </h2>
             {it.note && <p>{it.note}</p>}
             <table>
@@ -1139,7 +1354,7 @@ function Minutes({ s }: { s: Live }) {
                   </tr>
                 ))}
                 <tr>
-                  <td>기권</td>
+                  <td>건너뜀</td>
                   <td>{it.abstain}명</td>
                   <td>{it.voted ? Math.round(((it.abstain ?? 0) / it.voted) * 100) : 0}%</td>
                 </tr>
@@ -1150,18 +1365,23 @@ function Minutes({ s }: { s: Live }) {
               {it.outcome && (
                 <strong>
                   {' '}
-                  판정: {it.outcome === 'pass' ? '가결' : '부결'} (‘{it.options[0]?.label}’이 {BASIS[it.basis]}의 {it.rule === 'majority' ? '과반' : '3분의 2 이상'}이면 가결)
+                  통과 여부: {it.outcome === 'pass' ? '통과' : '통과 못 함'} (‘{it.options[0]?.label}’이 {BASIS[it.basis]}의 {it.rule === 'majority' ? '절반을 넘으면' : '3분의 2 이상이면'} 통과)
                 </strong>
               )}
             </p>
             <p>
               결과 확인 코드: {it.proof}
-              {it.objections > 0 && ` · 마감 뒤 접수된 이의 ${it.objections}건`}
+              {it.objections > 0 && ` · 마감 뒤 들어온 확인 요청 ${it.objections}건`}
             </p>
           </li>
         ))}
       </ol>
-      <p>이 픽은 익명 My Pick로 진행되어, 누가 무엇을 골랐는지는 기록되지 않았습니다. 결과 확인 코드는 마감한 순간의 결과로 만든 것이며, 누구나 결과 확인 화면에서 결과가 바뀌지 않았는지 확인할 수 있습니다.</p>
+      <p>이 픽은 익명으로 진행되어, 누가 무엇을 골랐는지는 기록되지 않았습니다. 결과 확인 코드는 마감한 순간의 결과로 만든 것이며, 누구나 결과 확인 화면에서 결과가 바뀌지 않았는지 확인할 수 있습니다.</p>
+      {s.admin?.mark.mark && (
+        <p>
+          기록 지문: {s.admin.mark.mark} (인쇄한 때의 기록 {s.admin.mark.count.toLocaleString('ko-KR')}줄). 관리자가 기록 화면에서 이 지문을 견줘 보면, 이때까지의 기록이 잘리거나 다시 쓰이지 않았는지 알 수 있습니다.
+        </p>
+      )}
       <div className="minutes-sign">
         <span>진행자 (서명)</span>
         <span>확인자 (서명)</span>
@@ -1173,9 +1393,10 @@ function Minutes({ s }: { s: Live }) {
 // ── 입장 코드 (엄격 방식) ─────────────────────────────────
 function Codes({ roomId, room, total, used, siteUrl, refresh }: { roomId: number; room: string; total: number; used: number; siteUrl: string; refresh: () => unknown }) {
   const [count, setCount] = useState(10)
-  const [codes, setCodes] = useState<{ code: string; used: boolean }[] | null>(null)
+  const [codes, setCodes] = useState<{ code: string; used: boolean; reopen: boolean }[] | null>(null)
+  const [again, setAgain] = useState('')
   const [shownCodes, setShownCodes] = useState(60) // 화면에는 60개씩 (인쇄할 때는 모두 펼쳐요)
-  const show = () => api<{ codes: { code: string; used: boolean }[] }>(`/api/admin/rooms/${roomId}/codes`).then((d) => setCodes(d.codes))
+  const show = () => api<{ codes: { code: string; used: boolean; reopen: boolean }[] }>(`/api/admin/rooms/${roomId}/codes`).then((d) => setCodes(d.codes))
   const { act, error, busy } = useAct(async () => {
     await refresh()
     await show()
@@ -1185,7 +1406,7 @@ function Codes({ roomId, room, total, used, siteUrl, refresh }: { roomId: number
     <section className="card">
       <h2>입장 코드</h2>
       <p className="tip">
-        한 사람에게 하나씩 나눠 주세요. QR 을 찍으면 방 번호와 코드가 채워진 채로 바로 들어와요. 지금 {total}개 중 {used}개를 썼어요. 같은 코드로 다시 들어오면 앞에 쓰던 기기는 끊기고, 픽은 한 번만 돼요.
+        한 사람에게 하나씩 나눠 주세요. QR 을 찍으면 방 번호와 코드가 채워진 채로 바로 들어와요. 지금 {total}개 중 {used}개를 썼어요. 코드는 한 번만 쓸 수 있어요. 한 번 쓴 코드는 다른 기기에서 다시 넣어도 들어올 수 없어요.
       </p>
       <div className="actions actions-start no-print">
         <label className="field field-inline">
@@ -1214,6 +1435,24 @@ function Codes({ roomId, room, total, used, siteUrl, refresh }: { roomId: number
           </button>
         )}
       </div>
+      {used > 0 && (
+        <form
+          className="reopen no-print"
+          onSubmit={(e) => {
+            e.preventDefault()
+            act(() => api(`/api/admin/rooms/${roomId}/codes`, 'PUT', { code: again }).then(() => (toast(`${fmtCode(again)} 코드를 다시 열었어요. 이제 한 번 더 들어올 수 있어요`), setAgain('')))).catch(() => {})
+          }}
+        >
+          <label className="field field-inline">
+            <span>쓴 코드 다시 열기</span>
+            <input className="input input-code" autoComplete="off" autoCapitalize="characters" maxLength={12} placeholder="코드 8자리" value={again} onChange={(e) => setAgain(e.target.value.toUpperCase())} required />
+          </label>
+          <button className="btn" disabled={busy}>
+            다시 열기
+          </button>
+          <p className="tip">기기를 바꿨거나 화면이 닫혀 다시 들어와야 하는 사람이 있으면, 그 사람의 코드(종이)를 직접 확인한 뒤 열어 주세요. 한 번 더 들어오면 다시 닫히고, 앞에 쓰던 기기는 끊겨요. 이미 픽한 주제는 다시 픽할 수 없어요.</p>
+        </form>
+      )}
       <Err text={error} />
       {codes && (
         <ul className="codes print-area">
@@ -1224,7 +1463,7 @@ function Codes({ roomId, room, total, used, siteUrl, refresh }: { roomId: number
                 {address} 방 번호 {room}
               </span>
               <strong>{fmtCode(c.code)}</strong>
-              {c.used && <span className="code-mark">사용함</span>}
+              {c.used && <span className="code-mark">{c.reopen ? '다시 열림' : '사용함'}</span>}
             </li>
           ))}
         </ul>
@@ -1255,18 +1494,17 @@ function OrgTab({ org, setOrg, defs, top }: { org: Org | null; setOrg: (o: Org) 
           className="form"
           onSubmit={(e) => {
             e.preventDefault()
-            act(async () => setOrg(await api<Org>('/api/admin/org', 'PUT', { name }))).then(setSaved)
+            act(async () => setOrg(await api<Org>('/api/admin/org', 'PUT', { name }))).then((ok) => ok && toast('기관 이름을 저장했어요'))
           }}
         >
           <label className="field">
             <span>모든 화면 맨 위에 나와요</span>
-            <input className="input" maxLength={40} value={name} onChange={(e) => (setName(e.target.value), setSaved(false))} required />
+            <input className="input" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} required />
           </label>
           <div className="actions actions-start">
             <button className="btn btn-primary" disabled={busy}>
               이름 저장
             </button>
-            {saved && <span role="status">저장했어요.</span>}
           </div>
         </form>
       </section>
@@ -1322,7 +1560,7 @@ function Cohost({ roomId, has, refresh }: { roomId: number; has: boolean; refres
     <details className="card no-print">
       <summary>공동 진행자 {has ? '(있음)' : ''}</summary>
       <p className="tip">
-        진행을 도울 사람에게 따로 비밀번호를 줄 수 있어요. ‘내가 만든 방 진행하기’에서 방 번호와 이 비밀번호로 들어와요. 안건을 더하고 열고 마감할 수 있지만, 방 지우기 · 끝내기 · 설정 바꾸기는 할 수 없어요.
+        진행을 도울 사람에게 따로 비밀번호를 줄 수 있어요. ‘내가 만든 방 진행하기’에서 방 번호와 이 비밀번호로 들어와요. 주제를 더하고 열고 마감할 수 있지만, 방 지우기 · 끝내기 · 설정 바꾸기는 할 수 없어요.
       </p>
       <div className="actions actions-start">
         <label className="field field-inline">
@@ -1344,13 +1582,14 @@ function Cohost({ roomId, has, refresh }: { roomId: number; has: boolean; refres
   )
 }
 
-// ── 신고 · 금칙어 · 막은 곳 ───────────────────────────────
+// ── 신고 · 막을 낱말 · 막은 곳 ───────────────────────────────
 type Report = { id: number; roomId: number | null; roomCode: string; roomTitle: string; reason: string; note: string; at: number; handled: boolean }
-type ReportData = { open: number; reports: Report[]; banned: string; blocks: { creator: string; at: number; why: string; until: number | null }[] }
+type ReportData = { feedback: { id: number; at: number; kind: string; note: string; page: string; ua: string }[]; open: number; reports: Report[]; banned: string; blocks: { creator: string; at: number; why: string; until: number | null }[] }
 function ReportsTab({ onOpen, onChange }: { onOpen: (id: number) => void; onChange: () => void }) {
   const [data, setData] = useState<ReportData | null>(null)
   const [banned, setBanned] = useState('')
-  const [saved, setSaved] = useState(false)
+  // 네 가지를 한 번에 길게 늘어놓지 않고 작은 탭으로 나눠 하나씩 봐요
+  const [view, setView] = useState<'reports' | 'feedback' | 'banned' | 'blocks'>('reports')
   const load = () =>
     api<ReportData>('/api/admin/reports').then((d) => {
       setData(d)
@@ -1367,69 +1606,119 @@ function ReportsTab({ onOpen, onChange }: { onOpen: (id: number) => void; onChan
   return (
     <>
       <div className="ad-head">
-        <h1>신고</h1>
+        <h1>신고 · 제보</h1>
       </div>
-      <section className="card">
-        <h2>들어온 신고 {data.open ? `(확인할 것 ${data.open}개)` : ''}</h2>
-        {data.reports.length === 0 && <p className="empty">아직 신고가 없어요. 참여자가 픽 화면의 ‘이 방 신고하기’로 보내면 여기에 모여요.</p>}
-        <ul className="reports">
-          {data.reports.map((r) => (
-            <li key={r.id} className={r.handled ? 'report-done' : ''}>
-              <div>
-                <strong>{r.reason}</strong>
-                <span>
-                  {r.roomTitle} (방 번호 {r.roomCode}){r.roomId ? '' : ', 지워진 방'}
-                </span>
-                {r.note && <p>{r.note}</p>}
-                <time dateTime={new Date(r.at).toISOString()}>{when(r.at)}</time>
-              </div>
-              <div className="actions">
-                {r.roomId && (
-                  <button className="btn btn-small" onClick={() => onOpen(r.roomId!)}>
-                    방 열어 보기
-                  </button>
+      <div className="seg room-tabs sub-tabs" role="group" aria-label="신고 · 제보 나누어 보기">
+        {(
+          [
+            ['reports', '신고', data.open],
+            ['feedback', '오류 제보', data.feedback.length],
+            ['banned', '막을 낱말', 0],
+            ['blocks', '막은 곳', data.blocks.length],
+          ] as const
+        ).map(([v, name, n]) => (
+          <button key={v} className="seg-btn" aria-pressed={view === v} onClick={() => setView(v)}>
+            {name}
+            {n > 0 && <span className="seg-count">{n}</span>}
+          </button>
+        ))}
+      </div>
+      {view === 'reports' && (
+        <section className="card">
+          <h2>들어온 신고 {data.open ? `(확인할 것 ${data.open}개)` : ''}</h2>
+          {data.reports.length === 0 && <p className="empty">아직 신고가 없어요. 참여자가 픽 화면의 ‘이 방 신고하기’로 보내면 여기에 모여요.</p>}
+          <ul className="reports">
+            {data.reports.map((r) => (
+              <li key={r.id} className={r.handled ? 'report-done' : ''}>
+                <div>
+                  <strong>{r.reason}</strong>
+                  <span>
+                    {r.roomTitle} (방 번호 {r.roomCode}){r.roomId ? '' : ', 지워진 방'}
+                  </span>
+                  {r.note && <p>{r.note}</p>}
+                  <time dateTime={new Date(r.at).toISOString()}>{when(r.at)}</time>
+                </div>
+                <div className="actions">
+                  {r.roomId && (
+                    <button className="btn btn-small" onClick={() => onOpen(r.roomId!)}>
+                      방 열어 보기
+                    </button>
                 )}
-                {!r.handled && (
+                {!r.handled ? (
                   <button className="btn btn-small" disabled={busy} onClick={() => act(() => api(`/api/admin/reports/${r.id}/handle`, 'POST'))}>
                     확인했어요
                   </button>
+                ) : (
+                  <button className="btn btn-small" disabled={busy} onClick={async () => (await ask('이 신고를 지울까요?\n지운 일은 기록에 남아요.', { ok: '지우기', danger: true })) && act(() => api(`/api/admin/reports/${r.id}`, 'DELETE'))}>
+                    지우기
+                  </button>
                 )}
               </div>
             </li>
           ))}
         </ul>
       </section>
-      <section className="card">
-        <h2>금칙어</h2>
-        <p className="tip">누구나 만드는 방(방장이 만든 방)의 방 이름 · 안건 · 선택지에 이 말이 들어 있으면 저장되지 않아요. 한 줄에 하나씩, 두 글자 이상. 띄어쓰기와 사이에 넣은 기호(바.보 · 바~보)는 빼고 견줘요.</p>
-        <textarea className="input" rows={5} value={banned} onChange={(e) => (setBanned(e.target.value), setSaved(false))} aria-label="금칙어 목록" />
-        <div className="actions actions-start">
-          <button className="btn btn-primary" disabled={busy} onClick={() => act(() => api('/api/admin/banned', 'PUT', { words: banned })).then(setSaved)}>
-            금칙어 저장
-          </button>
-          {saved && <span role="status">저장했어요.</span>}
-        </div>
-      </section>
-      <section className="card">
-        <h2>방 만들기를 막은 곳</h2>
-        <p className="tip">문제 방을 열어 ‘지우고 만든 곳 막기’를 누르면 여기에 더해져요. 접속 주소는 알아볼 수 없게 바꿔 보관하고, 정한 기간이 지나면 저절로 풀려요.</p>
-        {data.blocks.length === 0 && <p className="empty">막은 곳이 없어요.</p>}
-        <ul className="reports">
-          {data.blocks.map((b) => (
-            <li key={b.creator}>
-              <div>
-                <strong>{b.why}</strong>
-                <time dateTime={new Date(b.at).toISOString()}>
-                  {when(b.at)}에 막음, {b.until ? `${when(b.until)}에 저절로 풀려요` : '풀 때까지 계속'}
-                </time>
-              </div>
-              <button className="btn btn-small" disabled={busy} onClick={() => act(() => api(`/api/admin/blocks/${b.creator}`, 'DELETE'))}>
-                풀기
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
+      )}
+      {view === 'feedback' && (
+        <section className="card">
+          <h2>오류 제보 · 바라는 점 {data.feedback.length ? `(${data.feedback.length}개)` : ''}</h2>
+          {data.feedback.length === 0 && <p className="empty">아직 없어요. 화면 맨 아래의 ‘오류 제보’로 누구나 보낼 수 있어요.</p>}
+          <ul className="reports">
+            {data.feedback.map((f) => (
+              <li key={f.id}>
+                <div>
+                  <strong>{f.kind}</strong>
+                  <span>
+                    {new Date(f.at).toLocaleString('ko-KR')}
+                    {f.page && `, ${f.page} 화면`}
+                  </span>
+                  <p>{f.note}</p>
+                  {f.ua && <span className="feedback-ua">{f.ua}</span>}
+                </div>
+                <div className="actions">
+                  <button className="btn btn-small" disabled={busy} onClick={async () => (await ask('이 제보를 지울까요?', { ok: '지우기', danger: true })) && act(() => api(`/api/admin/feedback/${f.id}`, 'DELETE'))}>
+                    지우기
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {view === 'banned' && (
+        <section className="card">
+          <h2>막을 낱말</h2>
+          <p className="tip">누구나 만드는 방(방장이 만든 방)의 방 이름 · 주제 · 선택지에 이 말이 들어 있으면 저장되지 않아요. 한 줄에 하나씩, 두 글자 이상. 띄어쓰기와 사이에 넣은 기호(바.보 · 바~보)는 빼고 견줘요.</p>
+          <textarea className="input" rows={5} value={banned} onChange={(e) => setBanned(e.target.value)} aria-label="막을 낱말 목록" />
+          <div className="actions actions-start">
+            <button className="btn btn-primary" disabled={busy} onClick={() => act(() => api('/api/admin/banned', 'PUT', { words: banned })).then((ok) => ok && toast('막을 낱말을 저장했어요'))}>
+              막을 낱말 저장
+            </button>
+          </div>
+        </section>
+      )}
+      {view === 'blocks' && (
+        <section className="card">
+          <h2>방 만들기를 막은 곳</h2>
+          <p className="tip">문제 방을 열어 ‘지우고 만든 곳 막기’를 누르면 여기에 더해져요. 접속 주소는 알아볼 수 없게 바꿔 보관하고, 정한 기간이 지나면 저절로 풀려요.</p>
+          {data.blocks.length === 0 && <p className="empty">막은 곳이 없어요.</p>}
+          <ul className="reports">
+            {data.blocks.map((b) => (
+              <li key={b.creator}>
+                <div>
+                  <strong>{b.why}</strong>
+                  <time dateTime={new Date(b.at).toISOString()}>
+                    {when(b.at)}에 막음, {b.until ? `${when(b.until)}에 저절로 풀려요` : '풀 때까지 계속'}
+                  </time>
+                </div>
+                <button className="btn btn-small" disabled={busy} onClick={() => act(() => api(`/api/admin/blocks/${b.creator}`, 'DELETE'))}>
+                  풀기
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <Err text={error} />
     </>
   )
@@ -1467,7 +1756,7 @@ function AdminsTab() {
                 <strong>{a.name}</strong>
                 <time dateTime={new Date(a.createdAt).toISOString()}>{when(a.createdAt)}에 더함</time>
               </div>
-              <button className="btn btn-small" disabled={busy} onClick={() => confirm(`‘${a.name}’ 관리자를 뺄까요? 바로 로그아웃돼요.`) && act(() => api(`/api/admin/admins/${a.id}`, 'DELETE'))}>
+              <button className="btn btn-small" disabled={busy} onClick={async () => (await ask(`‘${a.name}’ 관리자를 뺄까요? 바로 로그아웃돼요.`, { ok: '빼기', danger: true })) && act(() => api(`/api/admin/admins/${a.id}`, 'DELETE'))}>
                 빼기
               </button>
             </li>
@@ -1508,8 +1797,24 @@ function AdminsTab() {
 
 // ── 기록 ──────────────────────────────────────────────────
 type AuditRow = { id: number; at: number; action: string; detail: Record<string, unknown> }
+/** 기록 한 줄의 내용: 길면(지운 방의 마지막 결과 같은 것) 앞부분만 보이고 눌러서 펼쳐요 */
+function AuditText({ text }: { text: string }) {
+  if (text.length <= 220) return <span>{text}</span>
+  return (
+    <details>
+      <summary>
+        <span>{text.slice(0, 180)}…</span> <b>더 보기</b>
+      </summary>
+      <span>{text}</span>
+    </details>
+  )
+}
+
 function AuditTab() {
-  const [data, setData] = useState<{ intact: boolean; rows: AuditRow[] } | null>(null)
+  const [data, setData] = useState<{ intact: boolean; mark: string; count: number; sealed: boolean; rows: AuditRow[] } | null>(null)
+  const [typed, setTyped] = useState('')
+  const [checked, setChecked] = useState<{ found: boolean; at: number | null; pos: number; intact: boolean; count: number } | null>(null)
+  const mark = useAct()
   const [q, setQ] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -1534,6 +1839,41 @@ function AuditTab() {
         {data.intact ? <ShieldCheck size={22} aria-hidden="true" /> : <ShieldAlert size={22} aria-hidden="true" />}
         {data.intact ? '기록이 처음부터 끝까지 이어져 있어요. 고치거나 뺀 흔적이 없어요.' : '기록이 중간에 어긋나 있어요. 누군가 저장 파일을 직접 고쳤을 수 있어요.'}
       </p>
+      {data.mark && (
+        <section className="card mark">
+          <h2>기록 지문</h2>
+          <p>
+            지금 기록 {data.count.toLocaleString('ko-KR')}줄의 지문은 <strong className="proof">{data.mark}</strong> 이에요.
+          </p>
+          <p className="tip">
+            이 지문을 사진 · 인쇄물처럼 서버 밖에 적어 두세요. 나중에 아래에 넣어 보면, 그때까지의 기록이 잘리거나 다시 쓰이지 않았는지 알 수 있어요.
+            {!data.sealed && ' 지금은 열쇠 없이 봉하고 있어요. .env 에 AUDIT_SECRET 을 넣으면 저장 파일만으로는 기록을 꾸며 낼 수 없어요.'}
+          </p>
+          <form
+            className="finder"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setChecked(null)
+              mark.act(() => api<NonNullable<typeof checked>>(`/api/admin/audit/mark?m=${encodeURIComponent(typed)}`).then(setChecked))
+            }}
+          >
+            <input className="input" placeholder="적어 둔 지문 (예: 3FA2-9C01-77BE)" aria-label="적어 둔 기록 지문" value={typed} onChange={(e) => setTyped(e.target.value)} required />
+            <button className="btn" disabled={mark.busy}>
+              견줘 보기
+            </button>
+          </form>
+          <Err text={mark.error} />
+          {checked && (
+            <p className={`seal ${checked.found && checked.intact ? 'seal-ok' : 'seal-bad'}`} role="status">
+              {checked.found && checked.intact
+                ? `그 지문은 지금 기록의 ${checked.pos.toLocaleString('ko-KR')}번째 줄(${new Date(checked.at!).toLocaleString('ko-KR')})이에요. 거기까지의 기록은 그대로예요.`
+                : checked.found
+                  ? '그 지문의 줄은 있지만, 기록이 중간에 어긋나 있어요.'
+                  : '그 지문이 지금 기록에 없어요. 적어 둔 뒤로 기록이 잘렸거나 다시 쓰였어요 (백업으로 되돌렸을 때도 이렇게 나와요).'}
+            </p>
+          )}
+        </section>
+      )}
       <div className="finder">
         <input className="input" type="search" placeholder="한 일 · 사람 · 방 이름으로 찾기 (예: 방 지움, teacher)" aria-label="기록 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="field field-inline">
@@ -1545,18 +1885,14 @@ function AuditTab() {
           <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
       </div>
-      <p className="tip">관리자와 진행자가 한 일, 안건을 마감한 순간의 결과가 남아요. 누가 무엇을 골랐는지는 여기에도 없어요. 화면에는 500개까지, 내려받기는 20,000개까지 담겨요.</p>
+      <p className="tip">관리자와 진행자가 한 일, 주제를 마감한 순간의 결과가 남아요. 누가 무엇을 골랐는지는 여기에도 없어요. 화면에는 500개까지, 내려받기는 20,000개까지 담겨요.</p>
       {data.rows.length === 0 && <p className="empty">여기에 맞는 기록이 없어요.</p>}
       <ul className="audit">
         {data.rows.slice(0, shown).map((r) => (
           <li key={r.id}>
             <time dateTime={new Date(r.at).toISOString()}>{new Date(r.at).toLocaleString('ko-KR')}</time>
             <strong>{r.action}</strong>
-            <span>
-              {Object.entries(r.detail)
-                .map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`)
-                .join(', ')}
-            </span>
+            <AuditText text={describe(r.detail)} />
           </li>
         ))}
       </ul>

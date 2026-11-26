@@ -1,6 +1,7 @@
 // 관리자 화면의 나머지 조각: 한눈에 보기(+ 서버 상태) · 통계 · 백업 · 내 비밀번호 · 방 꾸미기 · 큰 화면 조종
 import { useEffect, useState } from 'react'
 import { Download, RotateCcw } from 'lucide-react'
+import { ask } from './ui'
 import { api, type RoomState } from './api'
 import { clock, shrink } from './parts'
 import { Err, useAct } from './Admin'
@@ -194,7 +195,7 @@ export function StatsTab() {
           <strong>{sum(days, 'voters')}</strong>들어온 사람
         </li>
         <li className="tile">
-          <strong>{sum(days, 'items')}</strong>마감한 안건
+          <strong>{sum(days, 'items')}</strong>마감한 주제
         </li>
         <li className="tile">
           <strong>{sum(days, 'votes')}</strong>받은 픽
@@ -234,7 +235,7 @@ export function StatsTab() {
               <th scope="col">시작하는 날</th>
               <th scope="col">방</th>
               <th scope="col">사람</th>
-              <th scope="col">안건</th>
+              <th scope="col">주제</th>
               <th scope="col">픽</th>
               <th scope="col">참여율</th>
             </tr>
@@ -313,8 +314,8 @@ export function Backups({ top }: { top: boolean }) {
     load().catch(() => {})
   }, [])
   if (!data) return null
-  const restore = (f: Backup) => {
-    if (!confirm(`${f.name} 때로 되돌릴까요?\n그 뒤에 만든 방 · 픽 · 설정은 모두 사라져요. 지금 상태는 따로 남겨 두지만, 서버가 잠깐 꺼졌다 켜져요.`)) return
+  const restore = async (f: Backup) => {
+    if (!(await ask(`${f.name} 때로 되돌릴까요?\n그 뒤에 만든 방 · 픽 · 설정은 모두 사라져요. 지금 상태는 따로 남겨 두지만, 서버가 잠깐 꺼졌다 켜져요.`, { ok: '되돌리기', danger: true }))) return
     api(`/api/admin/backups/${f.name}/restore`, 'POST').then(
       () => {
         setNote('되돌리는 중이에요. 10초 뒤에 다시 열어요.')
@@ -327,7 +328,7 @@ export function Backups({ top }: { top: boolean }) {
     <section className="card">
       <h2>백업</h2>
       <p className="tip">
-        저장 파일(방 · 안건 · 결과 · 기록)을 하루에 한 번 통째로 떠 둬요{data.keepDays ? ` (최근 ${data.keepDays}일치)` : ' (지금은 꺼져 있어요)'}. {top ? '내려받아 다른 곳에 보관하거나, 문제가 생겼을 때 그때로 되돌릴 수 있어요.' : '내려받기 · 되돌리기는 최고 관리자만 할 수 있어요.'}
+        저장 파일(방 · 주제 · 결과 · 기록)을 하루에 한 번 통째로 떠 둬요{data.keepDays ? ` (최근 ${data.keepDays}일치)` : ' (지금은 꺼져 있어요)'}. {top ? '내려받아 다른 곳에 보관하거나, 문제가 생겼을 때 그때로 되돌릴 수 있어요.' : '내려받기 · 되돌리기는 최고 관리자만 할 수 있어요.'}
       </p>
       {top && (
         <div className="actions actions-start">
@@ -390,7 +391,9 @@ export function RoomLook({ roomId, tone, hasLogo, refresh }: { roomId: number; t
           </label>
         ))}
       </fieldset>
-      <div className="actions actions-start">
+      <div className="look-logo">
+        <span className="look-label">로고</span>
+        <div className="actions actions-start">
         <label className="btn">
           방 로고 사진 고르기
           <input
@@ -410,6 +413,7 @@ export function RoomLook({ roomId, tone, hasLogo, refresh }: { roomId: number; t
             방 로고 지우기
           </button>
         )}
+        </div>
       </div>
       <Err text={error} />
     </details>
@@ -428,8 +432,12 @@ export function ScreenControl({ roomId, mode, notice, refresh }: { roomId: numbe
   const { act, error, busy } = useAct(refresh)
   const set = (m: RoomState['room']['screenMode']) => act(() => api(`/api/admin/rooms/${roomId}/screen`, 'POST', { mode: m, notice: text }))
   return (
-    <div className="screen-ctl no-print">
-      <span className="screen-ctl-label">큰 화면에 띄울 것</span>
+    <details className="screen-ctl no-print" open={mode !== 'auto'}>
+      <summary>
+        <span className="screen-ctl-label">큰 화면에 띄울 것</span>
+        <small>지금: {MODES.find(([m]) => m === mode)?.[1] ?? '자동'}</small>
+      </summary>
+      <div className="screen-ctl-body">
       <div className="seg" role="group" aria-label="큰 화면에 띄울 것">
         {MODES.map(([m, name]) => (
           <button key={m} className="seg-btn" aria-pressed={mode === m} disabled={busy || (m === 'notice' && !text.trim())} onClick={() => set(m)}>
@@ -439,6 +447,7 @@ export function ScreenControl({ roomId, mode, notice, refresh }: { roomId: numbe
       </div>
       <input className="input" maxLength={120} placeholder="공지로 띄울 글 (예: 10분 쉬었다 시작해요)" aria-label="공지로 띄울 글" value={text} onChange={(e) => setText(e.target.value)} />
       <Err text={error} />
-    </div>
+      </div>
+    </details>
   )
 }

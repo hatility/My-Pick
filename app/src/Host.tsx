@@ -1,14 +1,15 @@
 // 방장 화면. 로그인 없이 누구나 방을 만들고, 만든 사람(방장)이 그 방 하나만 진행해요.
 //   /new   만들기 전 설명 → 방 만들기        /host   방장 화면 (방 번호 + 방장 비밀번호로 다시 들어오기)
 // 방 진행 화면은 관리자 화면의 것을 그대로 써요. 기관 설정 · 기록 · 다른 방은 관리자만 볼 수 있어요.
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { LogOut } from 'lucide-react'
+import { ask } from './ui'
 import { api, type Org } from './api'
-import { OrgMark, Stamp, ThemeToggle, TopBar } from './parts'
+import { AdFoot, AppMark, Stamp, ThemeToggle, TopBar } from './parts'
 import { Err, RoomForm, RoomPage, useAct, type Defaults } from './Admin'
 import { Lost, Result, TimeLeft, useLive } from './parts'
 import { Qr } from './Qr'
-import { BellRing, MonitorUp, Plus, SkipForward, Square } from 'lucide-react'
+import { BellRing, MonitorUp, Pause, Play, Plus, SkipForward, Square } from 'lucide-react'
 import type { RoomState } from './api'
 
 function useOrg() {
@@ -30,7 +31,7 @@ export function NewRoom() {
     <div className="ad">
       <TopBar org={org}>
         <a className="top-link" href="/guide">
-          안내
+          가이드
         </a>
       </TopBar>
       <main className="ad-main">
@@ -47,16 +48,16 @@ export function NewRoom() {
               <h1>방을 만들기 전에 읽어 주세요</h1>
             </div>
             <section className="card">
-              <h2>이렇게 진행돼요</h2>
+              <h2>세 걸음이면 돼요</h2>
               <ol className="steps">
                 <li>
-                  <strong>방을 만들어요.</strong> 방 번호 6자리가 나와요. 참여할 사람들에게 방 번호를 알려 주거나 큰 화면의 QR 을 보여 주세요.
+                  <strong>방을 만들어요.</strong> 방 번호 6자리가 나와요. 사람들에게 번호나 QR 을 보여 주세요.
                 </li>
                 <li>
-                  <strong>안건을 더하고 하나씩 열어요.</strong> 열면 모두의 화면에 픽 카드가 바로 나와요. 시간이 끝나거나 모두 픽하면 저절로 마감돼요.
+                  <strong>주제를 하나씩 열어요.</strong> 열면 모두의 화면에 바로 나오고, 시간이 끝나거나 모두 픽하면 저절로 마감돼요.
                 </li>
                 <li>
-                  <strong>결과를 함께 봐요.</strong> 마감되면 결과가 모두에게 한꺼번에 나와요.
+                  <strong>결과를 함께 봐요.</strong> 마감되면 모두에게 한꺼번에 나와요.
                 </li>
               </ol>
             </section>
@@ -65,22 +66,33 @@ export function NewRoom() {
               <ul className="rules">
                 <li>
                   <Stamp />
-                  누가 무엇을 골랐는지는 방장도 볼 수 없어요. 어디에도 남지 않아요.
-                </li>
-                <li>
-                  <Stamp />한 번 연 안건은 고치거나 지울 수 없어요. 열기 전에 내용을 확인해 주세요.
-                </li>
-                <li>
-                  <Stamp />
-                  방은 마지막으로 쓴 뒤 <strong>{days}일</strong>이 지나면 안건 · 결과와 함께 자동으로 지워져요. 필요한 결과는 그 전에 적어 두세요.
+                  <span>
+                    <strong>누가 무엇을 골랐는지는 방장도 몰라요.</strong> 어디에도 남지 않아요.
+                  </span>
                 </li>
                 <li>
                   <Stamp />
-                  방장 비밀번호를 잃어버리면 되찾을 수 없어요. 다른 기기에서 방을 진행하려면 방 번호와 방장 비밀번호가 필요해요.
+                  <span>
+                    <strong>한 번 연 주제는 고칠 수 없어요.</strong> 열기 전에 내용을 확인해 주세요.
+                  </span>
                 </li>
                 <li>
                   <Stamp />
-                  남을 속이거나 괴롭히는 일에는 쓸 수 없어요. 참여자가 방을 신고할 수 있고, 그런 방은 관리자가 지우거나 방을 만든 곳에서 더 만들지 못하게 막을 수 있어요. 이를 위해 방을 만든 접속 주소를 알아볼 수 없게 바꿔 방이 지워질 때까지 보관해요.
+                  <span>
+                    <strong>방은 마지막으로 쓴 뒤 {days}일이 지나면 지워져요.</strong> 필요한 결과는 그 전에 내려받아 두세요.
+                  </span>
+                </li>
+                <li>
+                  <Stamp />
+                  <span>
+                    <strong>방장 비밀번호는 되찾을 수 없어요.</strong> 다른 기기에서 진행하려면 방 번호와 함께 필요해요.
+                  </span>
+                </li>
+                <li>
+                  <Stamp />
+                  <span>
+                    <strong>남을 속이거나 괴롭히는 일에는 쓸 수 없어요.</strong> 신고된 방은 관리자가 지우거나, 만든 곳에서 더 만들지 못하게 막을 수 있어요. 이를 위해 방을 만든 접속 주소를 알아볼 수 없게 바꿔 방이 지워질 때까지 보관해요.
+                  </span>
                 </li>
               </ul>
               <label className="check">
@@ -143,17 +155,21 @@ export function HostPage() {
   return (
     <div className="ad">
       <header className="ad-bar">
-        <OrgMark org={org} />
+        <AppMark />
         <strong className="ad-role">{role === 'cohost' ? '공동 진행자 화면' : '방장 화면'}</strong>
+        <a className="top-link" href="/guide#host" target="_blank" rel="noopener">
+          가이드
+        </a>
         <ThemeToggle />
-        <button className="btn btn-quiet" onClick={() => api('/api/host/logout', 'POST').finally(() => (location.href = '/'))}>
+        <button className="btn btn-quiet" aria-label="나가기" onClick={() => api('/api/host/logout', 'POST').finally(() => (location.href = '/'))}>
           <LogOut size={18} aria-hidden="true" />
-          나가기
+          <span className="hide-sm">나가기</span>
         </button>
       </header>
       <main className="ad-main">
         <RoomPage key={roomId} id={roomId} defs={defs} onBack={() => (location.href = '/')} backLabel="첫 화면" />
       </main>
+      <AdFoot org={org} label={role === 'cohost' ? '공동 진행자 화면' : '방장 화면'} />
     </div>
   )
 }
@@ -168,10 +184,13 @@ function HostLogin({ org, onDone }: { org: Org | null; onDone: () => void }) {
   }
   return (
     <main className="ad-login">
-      <a className="org-link" href="/">
-        <OrgMark org={org} />
-      </a>
-      <h1>방장으로 들어가기</h1>
+      <header className="ad-login-head">
+        <a className="org-link" href="/" aria-label="My Pick, 첫 화면으로">
+          <AppMark />
+        </a>
+        <h1>방장으로 들어가기</h1>
+        <p>방을 만들 때 나온 방 번호와, 정한 방장 비밀번호를 넣어요.</p>
+      </header>
       <form className="join" onSubmit={submit}>
         <label className="field">
           <span>방 번호</span>
@@ -191,6 +210,7 @@ function HostLogin({ org, onDone }: { org: Org | null; onDone: () => void }) {
           아직 방이 없나요? <a href="/new">방 만들기</a>
         </p>
       )}
+      <AdFoot org={org} label="방장 화면" />
     </main>
   )
 }
@@ -225,6 +245,13 @@ function RemotePad({ id }: { id: number }) {
   const { act, error, busy } = useAct(live.refresh)
   const [notice, setNotice] = useState('')
   const s = live.state
+  // 조용한 손들기: 리모컨에도 몇 명인지 보이고, 새로 손을 들면 휴대폰이 짧게 떨려요 (진행자가 화면을 보지 않아도)
+  const raised = (s?.hands?.question ?? 0) + (s?.hands?.more ?? 0)
+  const before = useRef(0)
+  useEffect(() => {
+    if (raised > before.current) navigator.vibrate?.(120)
+    before.current = raised
+  }, [raised])
   if (!live.ready) return null
   if (!s)
     return (
@@ -247,11 +274,23 @@ function RemotePad({ id }: { id: number }) {
         </span>
       </header>
 
+      {s.hands && raised > 0 && (
+        <div className="remote-hands" role="status">
+          <p>
+            <strong>조용히 손든 사람 {raised}명</strong>
+            <span>{[s.hands.question && `질문 있어요 ${s.hands.question}명`, s.hands.more && `더 설명해 주세요 ${s.hands.more}명`].filter(Boolean).join(', ')}</span>
+          </p>
+          <button className="btn" disabled={busy} onClick={() => act(() => api(`/api/admin/rooms/${id}/hands`, 'DELETE'))}>
+            손 내리기
+          </button>
+        </div>
+      )}
+
       <section className="remote-now" aria-live="polite">
         {open ? (
           <>
-            <p className="remote-label">지금 열려 있어요</p>
-            <h1>{open.title}</h1>
+            <p className="remote-label">{open.paused ? '잠깐 멈춘 주제' : '지금 열려 있어요'}</p>
+            <h1 className="clamp-3">{open.title}</h1>
             <p className="remote-count">
               <strong>{open.voted}</strong> / {s.joined}명 참여
             </p>
@@ -259,14 +298,14 @@ function RemotePad({ id }: { id: number }) {
           </>
         ) : next ? (
           <>
-            <p className="remote-label">다음 안건</p>
+            <p className="remote-label">다음 주제</p>
             <h1>{next.title}</h1>
             <p className="remote-count">
-              안건 {s.agenda.total}개 중 {s.agenda.done}개 끝남
+              주제 {s.agenda.total}개 중 {s.agenda.done}개 끝남
             </p>
           </>
         ) : (
-          <h1>{s.room.closed ? '끝난 방이에요' : '남은 안건이 없어요'}</h1>
+          <h1>{s.room.closed ? '끝난 방이에요' : '남은 주제가 없어요'}</h1>
         )}
       </section>
 
@@ -274,11 +313,15 @@ function RemotePad({ id }: { id: number }) {
       <div className="remote-keys">
         {open ? (
           <>
-            <button className="btn btn-primary remote-key" disabled={busy} onClick={() => confirm('지금 마감할까요?') && post(`/api/admin/items/${open.id}/close`)}>
+            <button className="btn btn-primary remote-key" disabled={busy} onClick={async () => (await ask('지금 마감할까요?', { ok: '지금 마감' })) && post(`/api/admin/items/${open.id}/close`)}>
               <Square size={26} aria-hidden="true" />
               지금 마감
             </button>
-            {open.closesAt && (
+            <button className="btn remote-key" disabled={busy} onClick={() => post(`/api/admin/items/${open.id}/${open.paused ? 'resume' : 'pause'}`)}>
+              {open.paused ? <Play size={22} aria-hidden="true" /> : <Pause size={22} aria-hidden="true" />}
+              {open.paused ? '다시 시작' : '잠깐 멈추기'}
+            </button>
+            {(open.closesAt || open.pausedLeft) && (
               <div className="remote-pair">
                 <button className="btn remote-key" disabled={busy} onClick={() => post(`/api/admin/items/${open.id}/extend`, { seconds: 30 })}>
                   <Plus size={22} aria-hidden="true" />
@@ -297,26 +340,26 @@ function RemotePad({ id }: { id: number }) {
         ) : (
           next &&
           !s.room.closed && (
-            <button className="btn btn-primary remote-key" disabled={busy} onClick={() => confirm(`‘${next.title}’ 을 열까요?`) && post(`/api/admin/items/${next.id}/open`)}>
+            <button className="btn btn-primary remote-key" disabled={busy} onClick={async () => (await ask(`‘${next.title}’ 을 열까요?`, { ok: '열기' })) && post(`/api/admin/items/${next.id}/open`)}>
               <SkipForward size={26} aria-hidden="true" />
-              다음 안건 열기
+              다음 주제 열기
             </button>
           )
         )}
       </div>
 
-      {/* 지금 볼 진행자 메모 · 방금 끝난 안건의 결과 */}
+      {/* 지금 볼 진행자 메모 · 방금 끝난 주제의 결과 */}
       {(open ?? next)?.memo && <p className="remote-memo">{(open ?? next)!.memo}</p>}
       {!open && last && (
         <section className="remote-last">
-          <p className="remote-label">방금 끝난 안건</p>
+          <p className="remote-label">방금 끝난 주제</p>
           <strong>{last.title}</strong>
           <Result item={last} />
           {!s.room.closed && (
             <div className="actions actions-start">
               {tied && (
                 <button className="btn btn-small" disabled={busy} onClick={() => post(`/api/admin/items/${last.id}/runoff`)}>
-                  동점 결선 만들기
+                  동점끼리 다시 고르기
                 </button>
               )}
               <button className="btn btn-small" disabled={busy} onClick={() => post(`/api/admin/items/${last.id}/copy`)}>
@@ -329,7 +372,7 @@ function RemotePad({ id }: { id: number }) {
 
       <details className="remote-more">
         <summary>
-          안건 목록 ({s.agenda.done} / {s.agenda.total})
+          주제 목록 ({s.agenda.done} / {s.agenda.total})
         </summary>
         <ol>
           {s.items.map((it) => (
@@ -337,7 +380,7 @@ function RemotePad({ id }: { id: number }) {
               <span>{{ draft: '준비', open: '열림', closed: '마감' }[it.status]}</span>
               <strong>{it.title}</strong>
               {it.status === 'draft' && !open && !s.room.closed && (
-                <button className="btn btn-small" disabled={busy} onClick={() => confirm(`‘${it.title}’ 을 열까요?`) && post(`/api/admin/items/${it.id}/open`)}>
+                <button className="btn btn-small" disabled={busy} onClick={async () => (await ask(`‘${it.title}’ 을 열까요?`, { ok: '열기' })) && post(`/api/admin/items/${it.id}/open`)}>
                   열기
                 </button>
               )}

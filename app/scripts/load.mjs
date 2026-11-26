@@ -62,7 +62,7 @@ try {
   assert.equal(before.joined, N)
   assert.equal(before.present, N, `접속 인원이 ${before.present}/${N}`)
 
-  // 2) 안건을 열고, 모두가 2초 안에 흩어져 픽합니다. 다섯 명 중 한 명은 두 번 눌러 봅니다.
+  // 2) 주제를 열고, 모두가 2초 안에 흩어져 픽합니다. 다섯 명 중 한 명은 두 번 눌러 봅니다.
   await call(admin, 'POST', `/api/admin/items/${item.id}/open`)
   const opts = (await call(voters[0], 'GET', '/api/me')).data.items[0].options.map((o) => o.id)
   const want = [0, 0, 0]

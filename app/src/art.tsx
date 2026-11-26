@@ -24,14 +24,14 @@ export function HeroArt() {
         <rect className="art-ink" x="296" y="148" width="2" height="50" />
         <g className="art-stamp">
           <circle cx="324" cy="173" r="17" />
-          <path d="M321 162v22M321 172h10" />
+          <path d="M316 173.5l5.8 5.8L332.5 167.2" strokeLinejoin="round" />
         </g>
       </g>
       <rect className="art-box" x="56" y="254" width="368" height="150" rx="22" />
       <rect className="art-slot" x="146" y="264" width="188" height="10" rx="5" />
       <g className="art-seal">
         <circle cx="240" cy="338" r="30" />
-        <path d="M234 318v40M234 337h19" />
+        <path d="M225.8 338.8l10.2 10.2L255 327.7" strokeLinejoin="round" />
       </g>
     </svg>
   )
@@ -52,7 +52,7 @@ export function BoxArt() {
       <rect className="art-slot" x="48" y="65" width="64" height="5" rx="2.5" />
       <g className="art-seal">
         <circle cx="80" cy="96" r="13" />
-        <path d="M77.5 87.5v17M77.5 95.5h8" />
+        <path d="M73.8 96.3l4.5 4.5L86.5 91.6" strokeLinejoin="round" />
       </g>
     </svg>
   )

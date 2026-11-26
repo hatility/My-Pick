@@ -9,7 +9,7 @@ name: my-pick
 services:
   web:
     build: .
-    image: my-pick:0.1.0-dev
+    image: my-pick:0.2.0
     ports:
       - "${PORT:-8082}:8080"
     env_file:

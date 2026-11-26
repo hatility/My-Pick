@@ -1,23 +1,24 @@
 // 큰 화면 (/screen/방번호?k=열쇠): 빔프로젝터 · TV 에 띄워 두고 모두가 같이 봐요.
-//  - 안건이 없을 때: 들어오는 방법 (주소 · 방 번호 · QR)
-//  - 픽 받는 중: 안건, 남은 시간, 몇 명이 픽했는지 (결과는 ‘실시간 공개’ 방일 때만)
+//  - 주제가 없을 때: 들어오는 방법 (주소 · 방 번호 · QR)
+//  - 픽 받는 중: 주제, 남은 시간, 몇 명이 픽했는지 (결과는 ‘실시간 공개’ 방일 때만)
 //  - 마감 뒤: 결과
+import { useEffect, useState } from 'react'
 import { Maximize } from 'lucide-react'
 import { api, type Item, type RoomState } from './api'
 import { Qr } from './Qr'
-import { clock, Loading, Lost, OrgMark, Result, secondsLeft, spanOf, Stamp, ThemeToggle, TimeLeft, useLive, useTick } from './parts'
+import { useWakeLock, clock, Final, lenOf, Loading, Lost, OrgMark, Result, secondsLeft, spanOf, Stamp, ThemeToggle, TimeLeft, useLive, useTick } from './parts'
 import './screen.css'
 
 const RING = 2 * Math.PI * 54
 /** 남은 시간을 고리로. 줄어드는 만큼 고리가 풀려요. */
 function BigTime({ item, skew }: { item: Item; skew: number }) {
-  useTick(true) // 이 고리만 1초에 네 번 다시 그려요 (화면 전체는 그대로)
+  useTick(!item.paused) // 이 고리만 1초에 네 번 다시 그려요 (화면 전체는 그대로)
   const left = secondsLeft(item, skew)
-  if (left === null) return null
+  if (left === null) return item.paused ? <div className="sc-ring sc-ring-paused"><span>멈춤</span></div> : null
   const span = spanOf(item)
   const part = span ? Math.min(1, left / span) : 0
   return (
-    <div className={`sc-ring${left <= 10 ? ' sc-ring-soon' : ''}${left >= 3600 ? ' sc-ring-long' : ''}`}>
+    <div className={`sc-ring${item.paused ? ' sc-ring-paused' : left <= 10 ? ' sc-ring-soon' : ''}${left >= 3600 ? ' sc-ring-long' : ''}`}>
       <svg viewBox="0 0 120 120" aria-hidden="true">
         <circle className="sc-ring-track" cx="60" cy="60" r="54" />
         <circle className="sc-ring-fill" cx="60" cy="60" r="54" strokeDasharray={`${RING * part} ${RING}`} transform="rotate(-90 60 60)" />
@@ -53,6 +54,7 @@ export function Screen({ code }: { code: string }) {
     () => `/api/events?${query}`,
   )
   const s = live.state
+  useWakeLock(true) // 큰 화면은 띄워 두는 동안 꺼지지 않게
 
   if (!live.ready) return <Loading />
   if (!s)
@@ -86,15 +88,20 @@ export function Screen({ code }: { code: string }) {
         {mode === 'notice' ? (
           <section className="sc-wait">
             <p className="sc-kicker">알려 드려요</p>
-            <h1 className="sc-notice">{s.room.notice}</h1>
+            <h1 className="sc-notice" data-len={lenOf(s.room.notice)}>{s.room.notice}</h1>
+          </section>
+        ) : s.room.closed ? (
+          <section className="sc-vote">
+            <p className="sc-kicker">My Pick 이 모두 끝났어요</p>
+            <Final items={s.items} />
           </section>
         ) : open ? (
           <section className="sc-vote">
-            <p className="sc-kicker">{open.practice ? '연습 픽' : `${done + 1}번째 안건`}, 픽 받는 중</p>
+            <p className="sc-kicker">{open.practice ? '연습 픽' : `${done + 1}번째 주제`}, {open.paused ? '잠깐 멈췄어요' : '픽 받는 중'}</p>
             <div className="sc-head">
               <BigTime item={open} skew={s.skew} />
               <div>
-                <h1>{open.title}</h1>
+                <h1 data-len={lenOf(open.title)}>{open.title}</h1>
                 {open.note && <p className="sc-note">{open.note}</p>}
               </div>
             </div>
@@ -103,13 +110,15 @@ export function Screen({ code }: { code: string }) {
               <p>
                 <strong>{open.voted}</strong> / {s.joined}명 픽함
               </p>
+              {/* 참여율 알림: 누구인지는 없이 몇 명 남았는지만 */}
+              {s.joined > 0 && <p className="sc-left">{s.joined - open.voted > 0 ? `아직 ${s.joined - open.voted}명 남았어요` : '모두 픽했어요!'}</p>}
             </div>
             {open.revealed ? <Result item={open} /> : <p className="sc-hint">결과는 마감되면 여기에 나와요.</p>}
           </section>
         ) : last && mode !== 'join' && (s.room.locked || s.room.closed || done > 0) ? (
           <section className="sc-vote">
-            <p className="sc-kicker">{s.room.closed ? 'My Pick 이 모두 끝났어요' : `${done}번째 안건 결과`}</p>
-            <h1>{last.title}</h1>
+            <p className="sc-kicker">{s.room.closed ? 'My Pick 이 모두 끝났어요' : `${done}번째 주제 결과`}</p>
+            <h1 data-len={lenOf(last.title)}>{last.title}</h1>
             {last.practice && <p className="sc-note">연습이었어요.</p>}
             <Result item={last} />
           </section>
@@ -135,9 +144,19 @@ export function Screen({ code }: { code: string }) {
   )
 }
 
-/** 참관인 화면 (/observe/방번호?k=열쇠): 고르거나 조작할 수는 없고, 진행 상황 · 결과 · 이 방의 기록만 봐요. */
-type Watched = RoomState & { intact: boolean; log: { at: number; action: string; by: string | null; detail: Record<string, unknown> }[] }
+/** 지켜보기 화면 (/observe/방번호?k=열쇠): 고르거나 조작할 수는 없고, 진행 상황 · 결과 · 이 방의 기록만 봐요. */
+type Watched = RoomState & { intact: boolean; mark: string; count: number; log: { at: number; action: string; by: string | null; detail: Record<string, unknown> }[] }
 export function Observe({ code }: { code: string }) {
+  // 큰 화면 모드: 글자를 키우고(html[data-big]) 전체 화면으로. 고른 것은 이 브라우저에 기억해요.
+  const [big, setBig] = useState(() => { try { return localStorage.getItem('mypick-watch-big') === '1' } catch { return false } })
+  useEffect(() => {
+    if (big) document.documentElement.dataset.big = '1'
+    else delete document.documentElement.dataset.big
+    try { localStorage.setItem('mypick-watch-big', big ? '1' : '0') } catch { }
+    if (big && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {})
+    if (!big && document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+    return () => { delete document.documentElement.dataset.big }
+  }, [big])
   const k = new URLSearchParams(location.search).get('k') ?? ''
   const query = `room=${code}&k=${encodeURIComponent(k)}`
   const live = useLive(
@@ -148,24 +167,25 @@ export function Observe({ code }: { code: string }) {
   if (!live.ready) return <Loading />
   if (!s)
     return (
-      <Lost title="참관인 화면을 열 수 없어요">방이 지워졌거나 주소가 달라요. 진행자에게 참관인 주소를 다시 받아 주세요.</Lost>
+      <Lost title="지켜보기 화면을 열 수 없어요">방이 지워졌거나 주소가 달라요. 진행자에게 지켜보기 주소를 다시 받아 주세요.</Lost>
     )
   const open = s.items.find((i) => i.status === 'open')
   return (
-    <div className="home watch" data-tone={s.room.tone || undefined}>
+    <div className={`home watch${s.room.closed ? ' watch-closed' : ''}`} data-tone={s.room.tone || undefined}>
       <header className="top">
         <OrgMark org={s.org} />
         <nav className="top-nav">
-          <strong>참관인 화면</strong>
+          <strong className="watch-label">지켜보기 화면</strong>
           <ThemeToggle />
-          <button className="icon-btn" aria-label="전체 화면" title="전체 화면" onClick={() => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen())}>
-            <Maximize size={20} aria-hidden="true" />
+          <button className="btn btn-small watch-big-btn" aria-pressed={big} title="빔프로젝터 · TV 로 띄울 때: 글자를 키우고 화면을 가득 채워요" onClick={() => setBig(!big)}>
+            <Maximize size={18} aria-hidden="true" />
+            {big ? '큰 화면 모드 끄기' : '큰 화면 모드'}
           </button>
         </nav>
       </header>
       <main className="guide watch-main">
         <header className="guide-head">
-          <h1>
+          <h1 data-len={lenOf(s.room.title)}>
             {s.room.rehearsal && <span className="tag">리허설</span>}
             {s.room.title}
           </h1>
@@ -183,13 +203,18 @@ export function Observe({ code }: { code: string }) {
               <strong>
                 {s.agenda.done} / {s.agenda.total}
               </strong>
-              끝난 안건
+              끝난 주제
             </li>
           </ul>
           <p className="tip">
             지켜보기만 하는 화면이에요. 고르거나 진행을 바꿀 수 없고, 누가 무엇을 골랐는지는 여기에서도 볼 수 없어요.{!live.online && ' (다시 연결하는 중)'}
           </p>
         </header>
+        {s.room.closed && (
+          <section className="guide-sec watch-final">
+            <Final items={s.items} />
+          </section>
+        )}
         <section className="guide-sec watch-now">
           <h2>지금</h2>
           {open ? (
@@ -204,7 +229,7 @@ export function Observe({ code }: { code: string }) {
             </>
           ) : (
             <p className="tip">
-              {s.room.closed ? '모두 끝난 방이에요.' : '지금 열려 있는 안건이 없어요.'}
+              {s.room.closed ? '모두 끝난 방이에요.' : '지금 열려 있는 주제가 없어요.'}
               {!s.room.closed && s.agenda.next ? ` 다음은 ‘${s.agenda.next}’.` : ''}
               {s.nextOpenAt ? ` ${new Date(s.nextOpenAt).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}에 열려요.` : ''}
             </p>
@@ -212,7 +237,7 @@ export function Observe({ code }: { code: string }) {
         </section>
         {s.items.some((i) => i.status === 'closed') && (
           <section className="guide-sec watch-done">
-            <h2>마감된 안건</h2>
+            <h2>마감된 주제</h2>
             {s.items
               .filter((i) => i.status === 'closed')
               .reverse()
@@ -220,7 +245,7 @@ export function Observe({ code }: { code: string }) {
                 <article key={it.id} className="past">
                   <h3>{it.title}</h3>
                   <Result item={it} />
-                  {it.objections > 0 && <p className="tip">이의 {it.objections}건이 접수됐어요.</p>}
+                  {it.objections > 0 && <p className="tip">확인 요청 {it.objections}건이 들어왔어요.</p>}
                 </article>
               ))}
           </section>
@@ -231,6 +256,11 @@ export function Observe({ code }: { code: string }) {
             <Stamp />
             {s.intact ? '기록이 처음부터 끝까지 이어져 있어요. 고치거나 뺀 흔적이 없어요.' : '기록이 중간에 어긋나 있어요. 저장 파일을 누가 직접 고쳤을 수 있어요.'}
           </p>
+          {s.mark && (
+            <p className="tip">
+              지금 기록 지문 <strong className="proof">{s.mark}</strong> ({s.count.toLocaleString('ko-KR')}줄). 적어 두면 나중에 관리자가 그때까지의 기록이 그대로인지 견줄 수 있어요.
+            </p>
+          )}
           <ul className="watch-log">
             {s.log.map((r, i) => (
               <li key={i}>

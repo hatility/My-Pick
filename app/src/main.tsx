@@ -15,6 +15,8 @@ const HostPage = lazy(() => import('./Host').then((m) => ({ default: m.HostPage 
 const Guide = lazy(() => import('./Guide').then((m) => ({ default: m.Guide })))
 const Terms = lazy(() => import('./Guide').then((m) => ({ default: m.Terms })))
 const Privacy = lazy(() => import('./Guide').then((m) => ({ default: m.Privacy })))
+const About = lazy(() => import('./Guide').then((m) => ({ default: m.About })))
+const Feedback = lazy(() => import('./Guide').then((m) => ({ default: m.Feedback })))
 const Verify = lazy(() => import('./Guide').then((m) => ({ default: m.Verify })))
 const Screen = lazy(() => import('./Screen').then((m) => ({ default: m.Screen })))
 const Observe = lazy(() => import('./Screen').then((m) => ({ default: m.Observe })))
@@ -23,6 +25,8 @@ const Remote = lazy(() => import('./Host').then((m) => ({ default: m.Remote })))
 // 화면을 그리기 전에 밝기부터 (깜빡임 없이): 고른 적이 있으면 그것, 없으면 기기 설정
 try {
   document.documentElement.dataset.theme = localStorage.getItem('mypick-theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  const text = localStorage.getItem('mypick-text') // 참여자가 고른 글자 크기
+  if (text === 'l' || text === 'xl') document.documentElement.dataset.text = text
 } catch {
   /* 저장을 못 쓰는 브라우저는 밝은 화면으로 */
 }
@@ -32,7 +36,16 @@ const screen = /^\/screen\/(\d{6})$/.exec(path)?.[1]
 const observe = /^\/observe\/(\d{6})$/.exec(path)?.[1]
 
 // 휴대폰 · 태블릿(손가락으로 누르는 기기)이나 좁은 화면은 /m 으로 넘겨요. 방 번호(?room=)는 그대로 들고 가요.
-if (path === '/' && (matchMedia('(pointer: coarse)').matches || innerWidth < 900)) location.replace('/m' + location.search)
+// ‘PC 화면으로 보기’를 고른 적이 있으면(?view=pc) 넘기지 않아요. ?view=auto 로 되돌려요.
+let forcePc = false
+try {
+  const v = new URLSearchParams(location.search).get('view')
+  if (v) localStorage.setItem('mypick-view', v)
+  forcePc = localStorage.getItem('mypick-view') === 'pc'
+} catch {
+  /* 기억 못 하면 기기에 맞춰요 */
+}
+if (path === '/' && !forcePc && (matchMedia('(pointer: coarse)').matches || innerWidth < 900)) location.replace('/m' + location.search)
 
 function Route() {
   if (path === '/') return <Vote />
@@ -41,6 +54,8 @@ function Route() {
   if (path === '/host') return <HostPage />
   if (path === '/guide') return <Guide />
   if (path === '/verify') return <Verify />
+  if (path === '/about') return <About />
+  if (path === '/feedback') return <Feedback />
   if (path === '/terms') return <Terms />
   if (path === '/privacy') return <Privacy />
   if (path === '/admin') return <Admin />

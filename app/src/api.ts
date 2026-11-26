@@ -5,20 +5,23 @@ export type Item = {
   title: string
   note: string
   maxPick: number
-  /** 가결 기준: 첫 번째 선택지가 투표한 사람의 과반 · 3분의 2 이상 */
+  /** 통과 기준: 첫 번째 선택지가 투표한 사람의 절반 넘게 · 3분의 2 이상 */
   rule: 'none' | 'majority' | 'two_thirds'
   practice: boolean
   outcome: 'pass' | 'fail' | null
   seconds: number
   status: 'draft' | 'open' | 'closed'
   closesAt: number | null
-  /** 예약해 둔 여는 때 (준비 중인 안건만) */
+  /** 쉬어 가는 중인지, 그때 남아 있던 시간(밀리초) */
+  paused: boolean
+  pausedLeft: number | null
+  /** 예약해 둔 여는 때 (준비 중인 주제만) */
   openAt: number | null
   /** 예약해 둔 마감 때 */
   closeAt: number | null
   openedAt: number | null
   closedAt: number | null
-  /** 결과 확인 코드 (마감된 안건만) */
+  /** 결과 확인 코드 (마감된 주제만) */
   proof: string | null
   reason: string | null
   voted: number
@@ -28,17 +31,17 @@ export type Item = {
   abstain: number | null
   options: Option[]
   mine: boolean | null
-  /** 정족수 (0 이면 없음) · 가결을 따질 모수 */
+  /** 최소 참여 인원 (0 이면 없음) · 통과를 따질 기준 인원 */
   /** 선택지 순서를 사람마다 섞는지 */
   shuffle: boolean
-  /** 이의: 건수 · 받는 마감 때 · 내가 냈는지 · (진행자만) 내용 */
+  /** 확인 요청: 건수 · 받는 마감 때 · 내가 냈는지 · (진행자만) 내용 */
   objections: number
   objectUntil: number | null
   objected: boolean | null
   objectionNotes?: { note: string; at: number }[]
   quorum: number
   basis: 'voted' | 'valid' | 'joined'
-  /** 진행자가 독려 알림을 보낸 때 (열린 안건만) */
+  /** 진행자가 독려 알림을 보낸 때 (열린 주제만) */
   nudgeAt: number | null
   /** 진행자 메모 (진행자에게만 와요) */
   memo?: string
@@ -47,14 +50,17 @@ export type Org = { name: string; logo: string | null; open?: boolean; keepDays?
 export type RoomState = {
   now: number
   org: Org
-  room: { rehearsal: boolean; tone: string; screenMode: 'auto' | 'join' | 'result' | 'notice'; notice: string; code: string; title: string; mode: 'simple' | 'strict'; live: boolean; locked: boolean; closed: boolean; needPass: boolean }
+  room: { easy: boolean; rehearsal: boolean; tone: string; screenMode: 'auto' | 'join' | 'result' | 'notice'; notice: string; code: string; title: string; mode: 'simple' | 'strict'; live: boolean; locked: boolean; closed: boolean; needPass: boolean }
   joined: number
+  /** 조용한 손들기: 참여자에게는 내가 든 손, 진행자에게는 몇 명인지 */
+  myHand?: 'question' | 'more' | null
+  hands?: { question: number; more: number }
   nextOpenAt: number | null
-  /** 안건이 몇 개 중 몇 개 끝났는지 · 다음 안건 제목 */
+  /** 주제가 몇 개 중 몇 개 끝났는지 · 다음 주제 제목 */
   agenda: { total: number; done: number; next: string | null }
   present: number
   items: Item[]
-  admin?: { observerKey: string; rehearsalOf: number | null; archived: boolean; hasLogo: boolean; role: 'admin' | 'host' | 'cohost'; cohost: boolean; canBlock: boolean; owner: 'admin' | 'host'; expiresAt: number | null; id: number; capacity: number; seconds: number; grace: number; closeAll: boolean; screenKey: string; codes: { total: number; used: number } }
+  admin?: { mark: { mark: string; count: number }; observerKey: string; rehearsalOf: number | null; archived: boolean; hasLogo: boolean; role: 'admin' | 'host' | 'cohost'; cohost: boolean; canBlock: boolean; owner: 'admin' | 'host'; expiresAt: number | null; id: number; capacity: number; seconds: number; grace: number; closeAll: boolean; screenKey: string; codes: { total: number; used: number } }
   siteUrl?: string
 }
 

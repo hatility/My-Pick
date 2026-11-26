@@ -3,9 +3,9 @@
 // 공정성 · 비밀 보장을 위해 지키는 것
 //  - ‘누가 픽했는지’(participation)와 ‘무엇을 골랐는지’(options.votes 숫자)를 따로 저장해요.
 //    표 한 장 한 장은 남기지 않고 숫자만 올려서, 관리자도 · 저장 파일을 열어도 누가 무엇을 골랐는지 알 수 없어요.
-//  - 한 사람 한 안건 한 표: participation 의 (안건, 참여자) 가 겹치면 저장이 거부돼요.
+//  - 한 사람 한 주제 한 표: participation 의 (주제, 참여자) 가 겹치면 저장이 거부돼요.
 //  - 픽 받는 중 결과는 방 설정에서 ‘실시간 공개’를 켠 방만 보여 줘요. 꺼져 있으면 관리자도 마감 전에는 못 봐요.
-//  - 마감된 안건은 고치거나 지울 수 없고, 관리자가 한 일은 앞뒤가 이어진 기록(audit)으로 남아요.
+//  - 마감된 주제는 고치거나 지울 수 없고, 관리자가 한 일은 앞뒤가 이어진 기록(audit)으로 남아요.
 //
 // 환경 변수는 .env.example 에 설명이 있어요.
 //   --api-only   화면 파일은 안 보여 주고 /api · /uploads 만 (개발 서버용)
@@ -13,7 +13,7 @@ import { createServer } from 'node:http'
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
-import { createHash, randomBytes, randomInt, scrypt, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, randomInt, scrypt, scryptSync, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { brotliCompressSync, gzipSync } from 'node:zlib'
@@ -56,12 +56,12 @@ const MAX_PUBLIC_ROOMS = num(env.MAX_PUBLIC_ROOMS, 200, 1, 100_000)
 const CONTACT = (env.CONTACT || '').slice(0, 100)
 const SOURCE_URL = /^https?:\/\//.test(env.SOURCE_URL || '') ? env.SOURCE_URL.slice(0, 200) : ''
 const BACKUP_KEEP = Math.round(num(env.BACKUP_KEEP_DAYS, 7, 0, 365))
-// 마감 뒤 이의를 받을 시간(분). 0 이면 받지 않아요
+// 마감 뒤 확인 요청을 받을 시간(분). 0 이면 받지 않아요
 const OBJECT_MS = num(env.OBJECTION_MINUTES, 10, 0, 1440) * 60_000
 const HOST_SESSION_MS = num(env.HOST_SESSION_HOURS, 24, 1, 720) * 3_600_000
 
 const BOOT = Date.now()
-const VERSION = '0.1.0-dev'
+const VERSION = '0.2.0'
 
 // ── 저장 (SQLite) ────────────────────────────────────────
 mkdirSync(UPLOADS, { recursive: true })
@@ -83,7 +83,7 @@ db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
   PRAGMA secure_delete = ON;
-  -- id 는 지운 뒤에도 다시 쓰지 않아요 (AUTOINCREMENT). 기록(audit)의 방 · 안건 번호가 나중에 다른 것을 가리키면 안 되니까요.
+  -- id 는 지운 뒤에도 다시 쓰지 않아요 (AUTOINCREMENT). 기록(audit)의 방 · 주제 번호가 나중에 다른 것을 가리키면 안 되니까요.
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS rooms (
     id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, screen_key TEXT NOT NULL, title TEXT NOT NULL,
@@ -123,12 +123,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, room_code TEXT NOT NULL, room_title TEXT NOT NULL, reason TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL, handled INTEGER NOT NULL DEFAULT 0, voter_id INTEGER);
   -- 방 만들기를 막은 곳 (접속 주소를 알아볼 수 없게 바꾼 값)
   CREATE TABLE IF NOT EXISTS blocks (creator TEXT PRIMARY KEY, at INTEGER NOT NULL, why TEXT NOT NULL DEFAULT '');
-  -- 안건 묶음 (관리자들이 같이 써요)
+  -- 주제 묶음 (관리자들이 같이 써요)
   CREATE TABLE IF NOT EXISTS bundles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, items TEXT NOT NULL, updated_at INTEGER NOT NULL);
   -- 날마다 세는 숫자 (방이 지워져도 통계는 남게). 누가 무엇을 골랐는지와는 상관없는 합계만.
   CREATE TABLE IF NOT EXISTS stats (day TEXT PRIMARY KEY, rooms INTEGER NOT NULL DEFAULT 0, voters INTEGER NOT NULL DEFAULT 0, items INTEGER NOT NULL DEFAULT 0, votes INTEGER NOT NULL DEFAULT 0, eligible INTEGER NOT NULL DEFAULT 0);
-  -- 이의 제기: 마감 뒤 정한 시간 동안 참여자가 익명으로 한 번. 누가 냈는지는 ‘두 번 못 내게’ 번호만.
+  -- 확인 요청: 마감 뒤 정한 시간 동안 참여자가 익명으로 한 번. 누가 냈는지는 ‘두 번 못 내게’ 번호만.
   CREATE TABLE IF NOT EXISTS objections (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE, voter_id INTEGER NOT NULL, note TEXT NOT NULL, at INTEGER NOT NULL, UNIQUE (item_id, voter_id));
+  -- 오류 제보: 누구나 보내요. 이름 · 연락처 · 접속 주소는 받지 않아요 (어느 화면 · 어떤 브라우저인지만 같이).
+  CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, kind TEXT NOT NULL, note TEXT NOT NULL, page TEXT NOT NULL DEFAULT '', ua TEXT NOT NULL DEFAULT '');
   CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, hash TEXT NOT NULL);
 `)
 
@@ -156,20 +158,22 @@ function tx(fn) {
 
 // 방장 기능에 필요한 칸 (이미 만들어진 저장 파일에도 붙여요)
 //   archived: 보관함 · logo/tone: 방마다 로고와 색 · screen_mode/screen_notice: 큰 화면에 띄울 것
-//   안건: memo 진행자 메모 · nudge_at 독려 알림 · quorum 정족수 · basis 가결을 따질 모수
+//   주제: memo 진행자 메모 · nudge_at 독려 알림 · quorum 최소 참여 인원 · basis 통과를 따질 기준 인원
 //   cohost_hash: 공동 진행자 비밀번호   creator: 방을 만든 접속 주소를 알아볼 수 없게 바꾼 값 (차단에만 써요)
 //   owner: 'admin' 관리자가 만든 방 · 'host' 누구나 만든 방   host_hash: 방장 비밀번호   active_at: 마지막으로 쓴 시각
 {
   const cols = new Set(all('PRAGMA table_info(rooms)').map((c) => c.name))
-  for (const [col, def] of [['owner', "TEXT NOT NULL DEFAULT 'admin'"], ['host_hash', 'TEXT'], ['active_at', 'INTEGER NOT NULL DEFAULT 0'], ['cohost_hash', 'TEXT'], ['creator', 'TEXT'], ['archived', 'INTEGER NOT NULL DEFAULT 0'], ['logo', 'TEXT'], ['tone', "TEXT NOT NULL DEFAULT ''"], ['screen_mode', "TEXT NOT NULL DEFAULT 'auto'"], ['screen_notice', "TEXT NOT NULL DEFAULT ''"], ['rehearsal', 'INTEGER'], ['observer_key', 'TEXT']]) if (!cols.has(col)) db.exec(`ALTER TABLE rooms ADD COLUMN ${col} ${def}`)
+  for (const [col, def] of [['owner', "TEXT NOT NULL DEFAULT 'admin'"], ['host_hash', 'TEXT'], ['active_at', 'INTEGER NOT NULL DEFAULT 0'], ['cohost_hash', 'TEXT'], ['creator', 'TEXT'], ['archived', 'INTEGER NOT NULL DEFAULT 0'], ['logo', 'TEXT'], ['tone', "TEXT NOT NULL DEFAULT ''"], ['easy', 'INTEGER NOT NULL DEFAULT 0'], ['screen_mode', "TEXT NOT NULL DEFAULT 'auto'"], ['screen_notice', "TEXT NOT NULL DEFAULT ''"], ['rehearsal', 'INTEGER'], ['observer_key', 'TEXT']]) if (!cols.has(col)) db.exec(`ALTER TABLE rooms ADD COLUMN ${col} ${def}`)
+  if (!all('PRAGMA table_info(codes)').some((c) => c.name === 'reopen')) db.exec('ALTER TABLE codes ADD COLUMN reopen INTEGER NOT NULL DEFAULT 0') // 쓴 코드를 진행자가 한 번 더 열어 줬는지
   if (!all('PRAGMA table_info(voters)').some((c) => c.name === 'bot')) db.exec('ALTER TABLE voters ADD COLUMN bot INTEGER NOT NULL DEFAULT 0') // 리허설 방의 가짜 참여자
-  // 방: rehearsal 리허설 방이면 원래 방 번호(id) · observer_key 참관인 주소의 열쇠   안건: shuffle 선택지 순서를 사람마다 섞기
-  // 안건: open_at 예약해 둔 여는 때 · close_at 예약해 둔 마감 때 (있으면 ‘모두 픽함’으로 일찍 닫지 않아요)
+  // 방: rehearsal 리허설 방이면 원래 방 번호(id) · observer_key 지켜보기 주소의 열쇠   주제: shuffle 선택지 순서를 사람마다 섞기
+  // 주제: open_at 예약해 둔 여는 때 · close_at 예약해 둔 마감 때 (있으면 ‘모두 픽함’으로 일찍 닫지 않아요)
   if (!all('PRAGMA table_info(blocks)').some((c) => c.name === 'until')) db.exec('ALTER TABLE blocks ADD COLUMN until INTEGER') // 막는 기간의 끝 (없으면 계속)
-  // 안건: proof 결과 확인 코드 (마감하는 순간의 결과로 만든 12자리)
-  // 안건: rule 가결 기준 ('none' · 'majority' 과반 · 'two_thirds' 3분의 2)   practice 연습 픽
+  // 주제: proof 결과 확인 코드 (마감하는 순간의 결과로 만든 12자리)
+  // 주제: rule 통과 기준 ('none' · 'majority' 절반 넘게 · 'two_thirds' 3분의 2)   practice 연습 픽
   const icols = new Set(all('PRAGMA table_info(items)').map((c) => c.name))
-  for (const [col, def] of [['rule', "TEXT NOT NULL DEFAULT 'none'"], ['practice', 'INTEGER NOT NULL DEFAULT 0'], ['proof', 'TEXT'], ['open_at', 'INTEGER'], ['close_at', 'INTEGER'], ['memo', "TEXT NOT NULL DEFAULT ''"], ['nudge_at', 'INTEGER'], ['quorum', 'INTEGER NOT NULL DEFAULT 0'], ['basis', "TEXT NOT NULL DEFAULT 'voted'"], ['shuffle', 'INTEGER NOT NULL DEFAULT 0']]) if (!icols.has(col)) db.exec(`ALTER TABLE items ADD COLUMN ${col} ${def}`)
+  // 주제: paused 쉬어 가는 중이면 1, paused_left 멈춘 순간 남아 있던 시간(밀리초, 제한 시간이 없으면 NULL)
+  for (const [col, def] of [['paused', 'INTEGER NOT NULL DEFAULT 0'], ['paused_left', 'INTEGER'], ['rule', "TEXT NOT NULL DEFAULT 'none'"], ['practice', 'INTEGER NOT NULL DEFAULT 0'], ['proof', 'TEXT'], ['open_at', 'INTEGER'], ['close_at', 'INTEGER'], ['memo', "TEXT NOT NULL DEFAULT ''"], ['nudge_at', 'INTEGER'], ['quorum', 'INTEGER NOT NULL DEFAULT 0'], ['basis', "TEXT NOT NULL DEFAULT 'voted'"], ['shuffle', 'INTEGER NOT NULL DEFAULT 0']]) if (!icols.has(col)) db.exec(`ALTER TABLE items ADD COLUMN ${col} ${def}`)
 }
 
 // ── 백업 ─────────────────────────────────────────────────
@@ -201,6 +205,9 @@ const org = () => ({ name: setting('org', ORG_NAME), logo: setting('logo') || nu
 // ── 지울 수 없는 기록 ─────────────────────────────────────
 // 줄마다 바로 앞 줄의 해시를 넣어 만들어서, 중간 줄을 고치거나 빼면 그 뒤가 모두 어긋나요.
 const sha = (s) => createHash('sha256').update(String(s)).digest('hex')
+// 기록을 봉하는 해시: AUDIT_SECRET 이 있으면 열쇠를 섞어요(HMAC). 저장 파일 · 백업만 가진 사람은 맞는 해시를 새로 만들 수 없어요.
+const AUDIT_SECRET = env.AUDIT_SECRET || ''
+const seal = (s) => (AUDIT_SECRET ? createHmac('sha256', AUDIT_SECRET).update(String(s)).digest('hex') : sha(s))
 /** 지금 요청을 보낸 사람 (관리자 이름 · ‘방장’ · ‘공동 진행자’). 기록에 ‘누가’로 남아요. */
 const actor = new AsyncLocalStorage()
 function audit(action, detail = {}) {
@@ -209,15 +216,51 @@ function audit(action, detail = {}) {
   const prev = get('SELECT hash FROM audit ORDER BY id DESC LIMIT 1')?.hash ?? ''
   const at = Date.now()
   const text = JSON.stringify(detail)
-  run('INSERT INTO audit(at,action,detail,hash) VALUES(?,?,?,?)', at, action, text, sha(`${prev}|${at}|${action}|${text}`))
+  run('INSERT INTO audit(at,action,detail,hash) VALUES(?,?,?,?)', at, action, text, seal(`${prev}|${at}|${action}|${text}`))
 }
+// ponytail: 볼 때마다 처음부터 다시 계산해요 (줄마다 해시 한 번). 기록이 수십만 줄을 넘어 느려지면 확인한 곳까지를 메모리에 기억해 두세요.
 function auditIntact() {
   let prev = ''
+  let ok = true
   for (const r of all('SELECT * FROM audit ORDER BY id')) {
-    if (r.hash !== sha(`${prev}|${r.at}|${r.action}|${r.detail}`)) return false
+    if (r.hash !== seal(`${prev}|${r.at}|${r.action}|${r.detail}`)) {
+      ok = false
+      break
+    }
     prev = r.hash
   }
-  return true
+  intactSeen = { at: Date.now(), ok }
+  return ok
+}
+// 누구나 부를 수 있는 곳(결과 확인 · 지켜보기)은 10초 안에 본 결과를 다시 써요.
+// 결과 확인 코드는 큰 화면에 공개되고, 학교는 여럿이 한 인터넷 주소를 써서 주소마다 횟수를 막을 수도 없어요.
+// 이렇게 해 두면 누가 마구 불러도 기록 전체를 매번 다시 계산하느라 서버가 붙잡히지 않아요. 관리자 화면은 늘 처음부터 다시 봐요.
+let intactSeen = { at: 0, ok: true }
+const auditIntactSoon = () => (Date.now() - intactSeen.at < 10_000 ? intactSeen.ok : auditIntact())
+/** 기록 지문: 맨 끝 줄 해시의 앞 12자리. 서버 밖(인쇄물 · 사진)에 적어 두면, 나중에 그 줄이 그대로 있는지 견줄 수 있어요. */
+const markOf = (hash) => hash.slice(0, 12).toUpperCase().replace(/(.{4})(?=.)/g, '$1-')
+function auditMark() {
+  const last = get('SELECT id, hash FROM audit ORDER BY id DESC LIMIT 1')
+  return last ? { mark: markOf(last.hash), count: get('SELECT COUNT(*) AS n FROM audit').n } : { mark: '', count: 0 }
+}
+// 열쇠 없이 쌓인 기록을 열쇠로 한 번 다시 봉해요: node server.mjs --rekey-audit  (옛 방식으로 온전할 때만. 저절로는 하지 않아요)
+if (process.argv.includes('--rekey-audit')) {
+  if (!AUDIT_SECRET) console.log('.env 에 AUDIT_SECRET 이 없어요')
+  else if (auditIntact()) console.log('이미 열쇠로 봉해져 있어요')
+  else {
+    const rows = all('SELECT * FROM audit ORDER BY id')
+    let prev = ''
+    const plain = rows.every((r) => r.hash === sha(`${prev}|${r.at}|${r.action}|${r.detail}`) && ((prev = r.hash), true))
+    if (!plain) console.log('기록이 옛 방식으로도 어긋나 있어서 다시 봉하지 않았어요')
+    else {
+      prev = ''
+      tx(() => {
+        for (const r of rows) run('UPDATE audit SET hash=? WHERE id=?', (prev = seal(`${prev}|${r.at}|${r.action}|${r.detail}`)), r.id)
+      })
+      console.log(`기록 ${rows.length}줄을 열쇠로 다시 봉했어요`)
+    }
+  }
+  process.exit(0)
 }
 
 // ── 공통 ─────────────────────────────────────────────────
@@ -255,7 +298,8 @@ const SECURITY = {
     "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
 }
 
-const clientIp = (req) => (TRUST_PROXY && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress || '?'
+// 프록시 뒤일 때: X-Forwarded-For 의 맨 끝(우리 프록시가 붙인 것)만 믿어요. 앞쪽은 보내는 사람이 마음대로 적을 수 있어서, 그것을 믿으면 잠금 · 막기를 피해 갈 수 있어요.
+const clientIp = (req) => (TRUST_PROXY && String(req.headers['x-forwarded-for'] || '').split(',').at(-1).trim()) || req.socket.remoteAddress || '?'
 const isHttps = (req) => req.socket.encrypted || (TRUST_PROXY && req.headers['x-forwarded-proto'] === 'https')
 const cookieOf = (req, name) => new RegExp(`(?:^|;\\s*)${name}=([a-f0-9]{64})(?:;|$)`).exec(req.headers.cookie || '')?.[1] ?? null
 const setCookie = (req, name, value, maxAgeMs, sameSite) =>
@@ -322,7 +366,12 @@ function guard(key) {
   if (f && f.until > Date.now()) throw new Bad(429, `너무 많이 틀렸어요. ${Math.ceil((f.until - Date.now()) / 1000)}초 뒤에 다시 해 주세요.`)
 }
 function failed(key, after, ms) {
-  if (!fails.has(key) && fails.size >= 10_000) fails.clear() // 주소를 바꿔 가며 메모리를 채우려 할 때
+  // 주소를 바꿔 가며 메모리를 채우려 할 때: 잠겨 있지 않은 것부터 지워요 (통째로 비우면 걸어 둔 잠금이 다 풀려요)
+  if (!fails.has(key) && fails.size >= 10_000) {
+    const now = Date.now()
+    for (const [k, f] of fails) if (f.until <= now && fails.size >= 5_000) fails.delete(k)
+    for (const k of fails.keys()) if (fails.size >= 10_000) fails.delete(k) // 그래도 가득이면 오래된 것부터
+  }
   const n = (fails.get(key)?.n ?? 0) + 1
   fails.set(key, n >= after ? { n: 0, until: Date.now() + ms } : { n, until: 0 })
 }
@@ -374,6 +423,9 @@ function voterOf(req) {
 }
 
 // 접속 상태: 방 → 참여자 → { conns, lastSeen }. 메모리에만 있어요.
+// 조용한 손들기: 방 → (참여자 → 'question' | 'more'). 메모리에만 두고 저장하지 않아요. 주제가 열리거나 진행자가 내리면 비워요.
+const hands = new Map()
+const handAt = new Map() // 참여자 → 마지막으로 누른 때
 const presence = new Map()
 const seen = (roomId, voterId) => {
   let m = presence.get(roomId)
@@ -444,14 +496,14 @@ function openStream(req, res, room, voterId) {
   })
 }
 
-// ── 방 · 안건 ─────────────────────────────────────────────
+// ── 방 · 주제 ─────────────────────────────────────────────
 const roomByCode = (code) => (typeof code === 'string' && /^\d{6}$/.test(code) ? get('SELECT * FROM rooms WHERE code=?', code) ?? null : null)
 const roomById = (id) => get('SELECT * FROM rooms WHERE id=?', Number(id)) ?? null
 const votedCount = (itemId) => get('SELECT COUNT(*) n FROM participation WHERE item_id=?', itemId).n
 const joinedCount = (roomId) => get('SELECT COUNT(*) n FROM voters WHERE room_id=?', roomId).n
 
 /**
- * 결과 확인 코드: 마감된 결과 전체(방 번호 · 제목 · 선택지별 받은 픽 · 인원 · 기권 · 시각 · 까닭)를 한 줄로 만들어 해시한 12자리.
+ * 결과 확인 코드: 마감된 결과 전체(방 번호 · 제목 · 선택지별 받은 픽 · 인원 · 건너뜀 · 시각 · 까닭)를 한 줄로 만들어 해시한 12자리.
  * 마감 때 한 번 만들어 저장하고 화면에 보여 줘요. 나중에 지금 저장된 결과로 다시 만들어 견주면, 숫자가 하나라도 바뀌었는지 알 수 있어요.
  * (참여자가 마감 때 본 코드를 적어 두거나 사진으로 남겨 두는 것이 바깥의 증거가 돼요.)
  */
@@ -467,7 +519,7 @@ function closeItem(item, reason) {
   const voted = votedCount(item.id)
   const eligible = joinedCount(item.room_id)
   tx(() => {
-    run("UPDATE items SET status='closed', closed_at=?, reason=?, voted=?, eligible=? WHERE id=? AND status='open'", Date.now(), reason, voted, eligible, item.id)
+    run("UPDATE items SET status='closed', paused=0, paused_left=NULL, closed_at=?, reason=?, voted=?, eligible=? WHERE id=? AND status='open'", Date.now(), reason, voted, eligible, item.id)
     const tally = all('SELECT label, votes FROM options WHERE item_id=? ORDER BY pos', item.id)
     const proof = proofOf(item.id)
     if (!item.practice && !roomById(item.room_id).rehearsal) {
@@ -477,7 +529,7 @@ function closeItem(item, reason) {
     }
     run('UPDATE items SET proof=? WHERE id=?', proof, item.id)
     touch(item.room_id)
-    audit('안건 마감', { 방: item.room_id, 안건: item.id, 제목: item.title, 연습: !!item.practice, 가결기준: item.rule, 확인코드: proof, 이유: reason, 픽: voted, 참여자: eligible, 기권: get('SELECT abstain FROM items WHERE id=?', item.id).abstain, 결과: tally })
+    audit('주제 마감', { 방: item.room_id, 주제: item.id, 제목: item.title, 연습: !!item.practice, 통과기준: item.rule, 확인코드: proof, 이유: reason, 픽: voted, 참여자: eligible, 건너뜀: get('SELECT abstain FROM items WHERE id=?', item.id).abstain, 결과: tally })
   })
   ping(item.room_id)
 }
@@ -487,21 +539,22 @@ function openItem(item, room, how) {
   // 예약 마감이 있으면 그때까지, 없으면 제한 시간만큼
   const until = item.close_at && item.close_at > now ? item.close_at : item.seconds ? now + item.seconds * 1000 : null
   run("UPDATE items SET status='open', opened_at=?, closes_at=?, open_at=NULL WHERE id=?", now, until, item.id)
+  hands.delete(room.id) // 새 주제가 열리면 든 손은 모두 내려요
   touch(room.id)
-  audit('안건 엶', { 방: room.id, 안건: item.id, 제목: item.title, 방법: how, 제한시간: item.seconds, 선택지: all('SELECT label FROM options WHERE item_id=? ORDER BY pos', item.id).map((o) => o.label) })
+  audit('주제 엶', { 방: room.id, 주제: item.id, 제목: item.title, 방법: how, 제한시간: item.seconds, 선택지: all('SELECT label FROM options WHERE item_id=? ORDER BY pos', item.id).map((o) => o.label) })
   ping(room.id)
 }
 
-// 1초마다: 예약한 안건을 열고, 시간이 다 됐거나 자리에 있는 사람이 모두 픽했으면 마감해요.
+// 1초마다: 예약한 주제를 열고, 시간이 다 됐거나 자리에 있는 사람이 모두 픽했으면 마감해요.
 setInterval(() => {
   const now = Date.now()
   for (const item of all("SELECT * FROM items WHERE status='draft' AND open_at IS NOT NULL AND open_at<=? ORDER BY open_at, pos", now)) {
     const room = roomById(item.room_id)
     if (room.closed) run('UPDATE items SET open_at=NULL WHERE id=?', item.id)
-    else if (!get("SELECT 1 x FROM items WHERE room_id=? AND status='open'", room.id) && joinedCount(room.id) >= item.quorum) openItem(item, room, '예약') // 앞 안건이 열려 있으면 끝나는 대로
+    else if (!get("SELECT 1 x FROM items WHERE room_id=? AND status='open'", room.id) && joinedCount(room.id) >= item.quorum) openItem(item, room, '예약') // 앞 주제가 열려 있으면 끝나는 대로
   }
-  // 리허설 방: 가짜 참여자가 1초마다 열에 셋꼴로 픽해요 (가끔 기권). 픽 전까지는 자리에 있는 것으로 봐요.
-  for (const item of all("SELECT i.* FROM items i JOIN rooms r ON r.id=i.room_id WHERE i.status='open' AND r.rehearsal IS NOT NULL")) {
+  // 리허설 방: 가짜 참여자가 1초마다 열에 셋꼴로 픽해요 (가끔 건너뜀). 픽 전까지는 자리에 있는 것으로 봐요.
+  for (const item of all("SELECT i.* FROM items i JOIN rooms r ON r.id=i.room_id WHERE i.status='open' AND i.paused=0 AND r.rehearsal IS NOT NULL")) {
     const ids = all('SELECT id FROM options WHERE item_id=? ORDER BY pos', item.id).map((o) => o.id)
     for (const b of all('SELECT v.id FROM voters v LEFT JOIN participation p ON p.voter_id=v.id AND p.item_id=? WHERE v.room_id=? AND v.bot=1 AND p.voter_id IS NULL', item.id, item.room_id)) {
       seen(item.room_id, b.id).lastSeen = now
@@ -515,13 +568,13 @@ setInterval(() => {
       tally(item.room_id)
     }
   }
-  for (const item of all("SELECT * FROM items WHERE status='open'")) {
+  for (const item of all("SELECT * FROM items WHERE status='open' AND paused=0")) {
     if (item.closes_at && now >= item.closes_at) {
       closeItem(item, '시간이 끝남')
       continue
     }
     const room = roomById(item.room_id)
-    if (!room.close_all || item.close_at) continue // 마감 때를 정해 둔 안건은 그때까지 열어 둬요 (사람들이 드나들며 픽해요)
+    if (!room.close_all || item.close_at) continue // 마감 때를 정해 둔 주제는 그때까지 열어 둬요 (사람들이 드나들며 픽해요)
     const voters = all('SELECT v.id, p.voter_id AS done FROM voters v LEFT JOIN participation p ON p.voter_id=v.id AND p.item_id=? WHERE v.room_id=?', item.id, room.id)
     const done = voters.filter((v) => v.done).length
     if (done > 0 && !voters.some((v) => !v.done && isPresent(room, v.id, now))) closeItem(item, '모두 픽함')
@@ -532,6 +585,7 @@ function deleteRoom(room, why) {
   const results = all('SELECT i.title, i.status, i.voted, i.eligible, i.abstain, o.label, o.votes FROM items i LEFT JOIN options o ON o.item_id=i.id WHERE i.room_id=? ORDER BY i.pos, o.pos', room.id)
   tx(() => {
     run('UPDATE codes SET voter_id=NULL WHERE room_id=?', room.id)
+    hands.delete(room.id)
     run('DELETE FROM rooms WHERE id=?', room.id)
     audit(why, { 방: room.id, 번호: room.code, 이름: room.title, 마지막결과: results })
   })
@@ -561,11 +615,11 @@ setInterval(() => {
   for (const [k, f] of fails) if (f.until < now && f.n === 0) fails.delete(k)
 }, 600_000).unref()
 
-/** 가결 기준이 있는 안건: 첫 번째 선택지가 픽한 사람(기권 포함)의 과반 · 3분의 2 이상을 받았는지 */
+/** 통과 기준이 있는 주제: 첫 번째 선택지가 픽한 사람(건너뛴 사람 포함)의 절반 넘게 · 3분의 2 이상을 받았는지 */
 function outcomeOf(it) {
   if (it.rule === 'none') return null
   const yes = get('SELECT votes FROM options WHERE item_id=? ORDER BY pos LIMIT 1', it.id)?.votes ?? 0
-  // 모수: 픽한 사람(기권 포함) · 기권을 뺀 사람 · 들어온 사람 전체
+  // 기준 인원: 픽한 사람(건너뛴 사람 포함) · 실제로 고른 사람 · 들어온 사람 전체
   const base = it.basis === 'valid' ? it.voted - it.abstain : it.basis === 'joined' ? it.eligible : it.voted
   if (base <= 0) return 'fail'
   return (it.rule === 'majority' ? yes * 2 > base : yes * 3 >= base * 2) ? 'pass' : 'fail'
@@ -590,6 +644,8 @@ function roomView(room, { admin = false, voterId = null, role = null } = {}) {
       seconds: it.seconds,
       status: it.status,
       closesAt: it.closes_at,
+      paused: !!it.paused,
+      pausedLeft: it.paused ? it.paused_left : null,
       openAt: it.status === 'draft' ? it.open_at : null,
       closeAt: it.status !== 'closed' ? it.close_at : null,
       openedAt: it.opened_at,
@@ -602,7 +658,7 @@ function roomView(room, { admin = false, voterId = null, role = null } = {}) {
       abstain: show ? it.abstain : null,
       options: mix(all('SELECT id, label, votes FROM options WHERE item_id=? ORDER BY pos', it.id), it.shuffle && it.status === 'open' && voterId ? `${voterId}|${it.id}` : null).map((o) => (show ? { ...o } : { id: o.id, label: o.label })),
       shuffle: !!it.shuffle,
-      // 이의 제기: 건수는 모두에게, 내용은 진행자에게만. 마감 뒤 정한 시간 동안 참여자가 한 번.
+      // 확인 요청: 건수는 모두에게, 내용은 진행자에게만. 마감 뒤 정한 시간 동안 참여자가 한 번.
       objections: it.status === 'closed' ? get('SELECT COUNT(*) n FROM objections WHERE item_id=?', it.id).n : 0,
       objectUntil: it.status === 'closed' && OBJECT_MS ? it.closed_at + OBJECT_MS : null,
       objected: voterId && it.status === 'closed' ? !!get('SELECT 1 x FROM objections WHERE item_id=? AND voter_id=?', it.id, voterId) : null,
@@ -618,14 +674,20 @@ function roomView(room, { admin = false, voterId = null, role = null } = {}) {
   const view = {
     now,
     org: { ...org(), logo: room.logo || org().logo },
-    room: { rehearsal: !!room.rehearsal, tone: room.tone, screenMode: room.screen_mode, notice: room.screen_notice, code: room.code, title: room.title, mode: room.mode, live: !!room.live, locked: !!room.locked, closed: !!room.closed, needPass: !!room.pass_hash },
+    room: { easy: !!room.easy, rehearsal: !!room.rehearsal, tone: room.tone, screenMode: room.screen_mode, notice: room.screen_notice, code: room.code, title: room.title, mode: room.mode, live: !!room.live, locked: !!room.locked, closed: !!room.closed, needPass: !!room.pass_hash },
     joined: voters.length,
-    // 기다리는 동안 보여 줄 것: 안건이 몇 개 중 몇 개 끝났는지, 다음 안건 제목
+    // 기다리는 동안 보여 줄 것: 주제가 몇 개 중 몇 개 끝났는지, 다음 주제 제목
     agenda: { ...get("SELECT COUNT(*) total, COALESCE(SUM(status='closed'), 0) done FROM items WHERE room_id=?", room.id), next: get("SELECT title FROM items WHERE room_id=? AND status='draft' ORDER BY pos, id LIMIT 1", room.id)?.title ?? null },
-    // 예약된 다음 안건이 열리는 때 (기다리는 사람에게 알려 줘요)
+    // 예약된 다음 주제가 열리는 때 (기다리는 사람에게 알려 줘요)
     nextOpenAt: get("SELECT MIN(open_at) t FROM items WHERE room_id=? AND status='draft'", room.id).t,
     present: voters.filter((v) => isPresent(room, v.id, now)).length,
     items,
+  }
+  // 조용한 손들기: 참여자에게는 내가 든 손만, 진행자에게는 몇 명인지만 (누구인지는 어디에도 안 남아요)
+  if (voterId) view.myHand = hands.get(room.id)?.get(voterId) ?? null
+  if (admin) {
+    const raised = [...(hands.get(room.id)?.values() ?? [])]
+    view.hands = { question: raised.filter((k) => k === 'question').length, more: raised.filter((k) => k === 'more').length }
   }
   if (admin) {
     const c = get('SELECT COUNT(*) total, COUNT(voter_id) used FROM codes WHERE room_id=?', room.id)
@@ -633,7 +695,7 @@ function roomView(room, { admin = false, voterId = null, role = null } = {}) {
       room.observer_key = randomBytes(16).toString('hex')
       run('UPDATE rooms SET observer_key=? WHERE id=?', room.observer_key, room.id)
     }
-    view.admin = { observerKey: room.observer_key, rehearsalOf: room.rehearsal ?? null, archived: !!room.archived, hasLogo: !!room.logo, role, cohost: !!room.cohost_hash, canBlock: role === 'admin' && !!room.creator, owner: room.owner, expiresAt: room.owner === 'host' ? room.active_at + KEEP_DAYS * 86_400_000 : null, id: room.id, capacity: room.capacity, seconds: room.seconds, grace: room.grace, closeAll: !!room.close_all, screenKey: room.screen_key, codes: { total: c.total, used: c.used } }
+    view.admin = { mark: auditMark(), observerKey: room.observer_key, rehearsalOf: room.rehearsal ?? null, archived: !!room.archived, hasLogo: !!room.logo, role, cohost: !!room.cohost_hash, canBlock: role === 'admin' && !!room.creator, owner: room.owner, expiresAt: room.owner === 'host' ? room.active_at + KEEP_DAYS * 86_400_000 : null, id: room.id, capacity: room.capacity, seconds: room.seconds, grace: room.grace, closeAll: !!room.close_all, screenKey: room.screen_key, codes: { total: c.total, used: c.used } }
   }
   return view
 }
@@ -671,7 +733,7 @@ function sameSite(req) {
   }
 }
 
-// 금칙어: 누구나 만드는 방(방장 방)의 이름 · 안건에만 걸러요.
+// 막을 낱말: 누구나 만드는 방(방장 방)의 이름 · 주제에만 걸러요.
 const plain = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') // 글자 · 숫자만 남겨요 (바.보 · 바 보 · 바~보 → 바보)
 const bannedWords = () => setting('banned').split('\n').map(plain).filter((w) => w.length >= 2)
 function decent(...texts) {
@@ -691,7 +753,11 @@ const overHour = (key, max) => {
 }
 const bumpHour = (key) => {
   const c = created.get(key)
-  if (!c && created.size >= 10_000) created.clear()
+  if (!c && created.size >= 10_000) {
+    const now = Date.now()
+    for (const [k, x] of created) if (x.until <= now) created.delete(k) // 지난 것만 지워요 (통째로 비우면 한 시간 제한이 풀려요)
+    for (const k of created.keys()) if (created.size >= 10_000) created.delete(k)
+  }
   created.set(key, c && c.until > Date.now() ? { n: c.n + 1, until: c.until } : { n: 1, until: Date.now() + 3_600_000 })
 }
 
@@ -702,21 +768,21 @@ function itemFields(b, room) {
   if (new Set(options).size !== options.length) throw new Bad(400, '같은 선택지가 두 번 있어요')
   if (room.owner === 'host') decent(String(b.title), String(b.note ?? ''), ...options)
   return {
-    title: text(b.title, '안건 제목', 100),
+    title: text(b.title, '주제 제목', 100),
     note: b.note ? text(b.note, '설명', 300) : '',
     maxPick: int(b.maxPick ?? 1, '고를 수 있는 개수', 1, options.length),
     seconds: int(b.seconds ?? room.seconds, '제한 시간', 0, 3600),
-    // 가결 기준은 하나만 고르는 안건에서만 뜻이 있어요
+    // 통과 기준은 하나만 고르는 주제에서만 뜻이 있어요
     rule: ['majority', 'two_thirds'].includes(b.rule) && (b.maxPick ?? 1) === 1 ? b.rule : 'none',
     practice: bool(b.practice),
-    quorum: int(b.quorum ?? 0, '정족수', 0, 100_000),
+    quorum: int(b.quorum ?? 0, '최소 참여 인원', 0, 100_000),
     shuffle: bool(b.shuffle),
     basis: ['valid', 'joined'].includes(b.basis) ? b.basis : 'voted',
     options,
   }
 }
 
-/** 안건을 방 맨 뒤에 더해요 (새로 만들기 · 복사 · 결선) */
+/** 주제를 방 맨 뒤에 더해요 (새로 만들기 · 복사 · 다시 고르기) */
 function addItem(roomId, f) {
   return tx(() => {
     const pos = (get('SELECT MAX(pos) p FROM items WHERE room_id=?', roomId).p ?? 0) + 1
@@ -742,6 +808,7 @@ function roomFields(b) {
     seconds: int(b.seconds ?? DEFAULT_SECONDS, '제한 시간', 0, 3600),
     grace: int(b.grace ?? DEFAULT_GRACE, '끊긴 사람 기다리는 시간', 3, 600),
     closeAll: bool(b.closeAll ?? true),
+    easy: bool(b.easy ?? false), // 쉬운 말 모드: 참여 화면의 글자를 키우고 문장을 짧게
   }
 }
 
@@ -751,7 +818,7 @@ function newRoomCode() {
   while (roomByCode(code))
   return code
 }
-/** 설정과 안건을 그대로 담은 새 방 (안건은 모두 ‘준비’로) */
+/** 설정과 주제를 그대로 담은 새 방 (주제는 모두 ‘준비’로) */
 function cloneRoom(room, title, { owner = 'admin', rehearsal = null } = {}) {
   const now = Date.now()
   const code = newRoomCode()
@@ -759,7 +826,7 @@ function cloneRoom(room, title, { owner = 'admin', rehearsal = null } = {}) {
   const nid = tx(() => {
     const nid = Number(
       run(
-        'INSERT INTO rooms(code, screen_key, title, pass_hash, mode, capacity, live, seconds, grace, close_all, created_at, owner, host_hash, creator, active_at, tone, logo, rehearsal) SELECT ?, ?, ?, pass_hash, mode, capacity, live, seconds, grace, close_all, ?, ?, ?, ?, ?, tone, NULL, ? FROM rooms WHERE id=?',
+        'INSERT INTO rooms(code, screen_key, title, pass_hash, mode, capacity, live, seconds, grace, close_all, created_at, owner, host_hash, creator, active_at, tone, logo, rehearsal, easy) SELECT ?, ?, ?, pass_hash, mode, capacity, live, seconds, grace, close_all, ?, ?, ?, ?, ?, tone, NULL, ?, easy FROM rooms WHERE id=?',
         code, randomBytes(16).toString('hex'), title.slice(0, 60), now, owner, keep ? room.host_hash : null, keep ? room.creator : null, now, rehearsal, room.id,
       ).lastInsertRowid,
     )
@@ -777,8 +844,8 @@ function createRoom(b, owner, creator = null) {
   const code = newRoomCode()
   const id = Number(
     run(
-      'INSERT INTO rooms(code, screen_key, title, pass_hash, mode, capacity, live, seconds, grace, close_all, created_at, owner, host_hash, active_at, creator) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      code, randomBytes(16).toString('hex'), f.title, f.password ? hashPass(f.password) : null, b.mode, f.capacity, f.live, f.seconds, f.grace, f.closeAll, Date.now(), owner, hostHash, Date.now(), creator,
+      'INSERT INTO rooms(code, screen_key, title, pass_hash, mode, capacity, live, seconds, grace, close_all, created_at, owner, host_hash, active_at, creator, easy) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      code, randomBytes(16).toString('hex'), f.title, f.password ? hashPass(f.password) : null, b.mode, f.capacity, f.live, f.seconds, f.grace, f.closeAll, Date.now(), owner, hostHash, Date.now(), creator, f.easy,
     ).lastInsertRowid,
   )
   bumpStat('rooms')
@@ -814,6 +881,8 @@ async function api(req, res, url) {
     }
     return ok({
       same: proofOf(it.id) === it.proof,
+      // 이 마감이 기록에도 남아 있고 기록이 온전한지 (기록 끝을 잘라내면 여기서 드러나요)
+      logged: !!get("SELECT 1 AS x FROM audit WHERE action IN ('주제 마감','안건 마감') AND detail LIKE ?", `%"확인코드":"${it.proof}"%`) && auditIntactSoon(),
       room: it.room_title,
       title: it.title,
       practice: !!it.practice,
@@ -863,8 +932,19 @@ async function api(req, res, url) {
       const entry = get('SELECT * FROM codes WHERE room_id=? AND code=?', room.id, cleanCode(b.entryCode))
       if (!entry) throw wrong()
       if (entry.voter_id) {
-        // 이미 쓴 코드: 같은 사람이 다른 기기 · 브라우저로 다시 들어온 것. 픽 기록은 그대로 두고 세션만 옮겨요 (앞 기기는 끊겨요).
-        run('UPDATE voters SET token_hash=?, expires_at=? WHERE id=?', sha(token), expires, entry.voter_id)
+        // 입장 코드는 한 번만 써요. 이미 쓴 코드는, 그 코드로 들어와 있는 바로 그 기기만 그대로 이어 가요.
+        if (mine?.id === entry.voter_id) return ok()
+        // 다른 기기에서 다시 넣으면 막아요 (코드를 훔쳐보거나 사진 찍어 가도 남의 자리를 빼앗지 못해요).
+        // 진행자가 실물 코드를 보고 ‘다시 열기’를 해 준 경우에만 한 번 더 들어올 수 있고, 들어오면 다시 닫혀요. 픽 기록은 그대로라 한 번만 픽해요.
+        if (!entry.reopen) {
+          failed(key, JOIN_LOCK_AFTER, JOIN_LOCK_MS) // 쓴 코드를 마구 넣어 보는 것도 틀린 횟수로 세요
+          failed(wide, JOIN_LOCK_AFTER * 5, JOIN_LOCK_MS)
+          throw new Bad(409, '이미 쓴 입장 코드예요. 진행자에게 이 코드를 보여 주면 다시 열어 줘요.')
+        }
+        tx(() => {
+          run('UPDATE voters SET token_hash=?, expires_at=? WHERE id=?', sha(token), expires, entry.voter_id)
+          run('UPDATE codes SET reopen=0 WHERE room_id=? AND code=?', room.id, entry.code)
+        })
       } else {
         if (room.locked) throw new Bad(403, room.closed ? '끝난 방이에요' : '입장이 마감됐어요. 진행자에게 알려 주세요.')
         tx(() => {
@@ -900,19 +980,39 @@ async function api(req, res, url) {
     return ok({ ok: true }, { 'Set-Cookie': setCookie(req, 'mp_voter', '', 0, 'Lax') })
   }
 
+  // 조용한 손들기: 질문 있어요 · 더 설명해 주세요 (같은 것을 다시 누르면 내려요)
+  if (path === '/api/hand' && m === 'POST') {
+    const v = voterOf(req)
+    if (!v) throw new Bad(401, '입장이 필요해요')
+    const kind = (await body(req)).kind
+    if (![null, 'question', 'more'].includes(kind)) throw new Bad(400, '알 수 없는 손이에요')
+    // 한 사람이 마구 눌러 방 전체를 계속 다시 읽게 만들지 못하게: 1.5초에 한 번
+    const last = handAt.get(v.id) ?? 0
+    if (Date.now() - last < 1500) throw new Bad(429, '조금 천천히 눌러 주세요')
+    if (handAt.size >= 20_000) handAt.clear()
+    handAt.set(v.id, Date.now())
+    let mine = hands.get(v.room_id)
+    if (!mine) hands.set(v.room_id, (mine = new Map()))
+    if (kind) mine.set(v.id, kind)
+    else mine.delete(v.id)
+    ping(v.room_id)
+    return ok()
+  }
+
   if (path === '/api/vote' && m === 'POST') {
     const v = voterOf(req)
     if (!v) throw new Bad(401, '입장이 필요해요')
     const b = await body(req)
-    const item = get('SELECT * FROM items WHERE id=? AND room_id=?', int(b.item, '안건', 1, 2 ** 31), v.room_id)
-    if (!item) throw new Bad(404, '없는 안건이에요')
+    const item = get('SELECT * FROM items WHERE id=? AND room_id=?', int(b.item, '주제', 1, 2 ** 31), v.room_id)
+    if (!item) throw new Bad(404, '없는 주제예요')
     if (!Array.isArray(b.options) || b.options.length > item.max_pick || new Set(b.options).size !== b.options.length) throw new Bad(400, `${item.max_pick}개까지 고를 수 있어요`)
     const valid = new Set(all('SELECT id FROM options WHERE item_id=?', item.id).map((o) => o.id))
     if (!b.options.every((id) => Number.isInteger(id) && valid.has(id))) throw new Bad(400, '없는 선택지예요')
     tx(() => {
       // 열려 있는지는 저장하는 그 순간에 다시 봐요
-      const now = get('SELECT status, closes_at FROM items WHERE id=?', item.id)
-      if (now.status !== 'open' || (now.closes_at && Date.now() >= now.closes_at)) throw new Bad(409, '마감된 안건이에요')
+      const now = get('SELECT status, closes_at, paused FROM items WHERE id=?', item.id)
+      if (now.status !== 'open' || (now.closes_at && Date.now() >= now.closes_at)) throw new Bad(409, '마감된 주제예요')
+      if (now.paused) throw new Bad(409, '진행자가 잠깐 멈췄어요. 다시 시작하면 고를 수 있어요.')
       if (get('SELECT 1 x FROM participation WHERE item_id=? AND voter_id=?', item.id, v.id)) throw new Bad(409, '이미 픽했어요')
       run('INSERT INTO participation(item_id, voter_id) VALUES(?,?)', item.id, v.id) // 겹치면 PRIMARY KEY 가 한 번 더 막아요
       // 무엇을 골랐는지는 숫자만 올려요. 누가 골랐는지와 이어지는 것은 어디에도 남지 않아요.
@@ -924,16 +1024,16 @@ async function api(req, res, url) {
     return ok()
   }
 
-  // 이의 제기: 마감 뒤 정한 시간 동안, 그 방 참여자가 안건마다 한 번. 익명으로 진행자에게 전해져요.
+  // 확인 요청: 마감 뒤 정한 시간 동안, 그 방 참여자가 주제마다 한 번. 익명으로 진행자에게 전해져요.
   if (path === '/api/object' && m === 'POST') {
     const v = voterOf(req)
     if (!v) throw new Bad(401, '입장이 필요해요')
     const b = await body(req)
-    const item = get("SELECT * FROM items WHERE id=? AND room_id=? AND status='closed'", int(b.item, '안건', 1, 2 ** 31), v.room_id)
-    if (!item) throw new Bad(404, '마감된 안건이 아니에요')
-    if (!OBJECT_MS || Date.now() > item.closed_at + OBJECT_MS) throw new Bad(409, '이의를 받는 시간이 지났어요')
-    const note = text(b.note, '이의 내용', 300, 5)
-    if (get('SELECT 1 x FROM objections WHERE item_id=? AND voter_id=?', item.id, v.id)) throw new Bad(409, '이 안건에는 이미 이의를 냈어요')
+    const item = get("SELECT * FROM items WHERE id=? AND room_id=? AND status='closed'", int(b.item, '주제', 1, 2 ** 31), v.room_id)
+    if (!item) throw new Bad(404, '마감된 주제가 아니에요')
+    if (!OBJECT_MS || Date.now() > item.closed_at + OBJECT_MS) throw new Bad(409, '확인 요청을 받는 시간이 지났어요')
+    const note = text(b.note, '확인할 내용', 300, 5)
+    if (get('SELECT 1 x FROM objections WHERE item_id=? AND voter_id=?', item.id, v.id)) throw new Bad(409, '이 주제에는 이미 확인 요청을 보냈어요')
     run('INSERT INTO objections(item_id, voter_id, note, at) VALUES(?,?,?,?)', item.id, v.id, note, Date.now())
     ping(v.room_id)
     return ok()
@@ -954,6 +1054,19 @@ async function api(req, res, url) {
     return ok()
   }
 
+  // 오류 제보 · 바라는 점: 누구나, 한 주소에서 한 시간에 5번까지
+  if (path === '/api/feedback' && m === 'POST') {
+    const b = await body(req)
+    if (!['오류', '바라는 점'].includes(b.kind)) throw new Bad(400, '오류인지 바라는 점인지 골라 주세요')
+    const note = text(b.note, '내용', 500, 5)
+    if (overHour(`feedback|${ip}`, 5)) throw new Bad(429, '너무 많이 보냈어요. 나중에 다시 해 주세요.')
+    if (get('SELECT COUNT(*) n FROM feedback').n >= 2000) throw new Bad(503, '지금은 제보를 받을 수 없어요. 운영자에게 직접 알려 주세요.')
+    const page = typeof b.page === 'string' && /^\/[\w\-/]{0,60}$/.test(b.page) ? b.page : '' // 주소의 길(방 번호 · 열쇠가 든 꼬리는 빼고)만
+    run('INSERT INTO feedback(at, kind, note, page, ua) VALUES(?,?,?,?,?)', Date.now(), b.kind, note, page, String(req.headers['user-agent'] ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 160))
+    bumpHour(`feedback|${ip}`)
+    return ok()
+  }
+
   if (path === '/api/observe' && m === 'GET') {
     const room = roomByCode(url.searchParams.get('room'))
     const k = url.searchParams.get('k')
@@ -961,10 +1074,12 @@ async function api(req, res, url) {
     const mark = `"방":${room.id}`
     return ok({
       ...roomView(room),
-      intact: auditIntact(),
+      intact: auditIntactSoon(),
+      ...auditMark(),
       log: all('SELECT at, action, detail FROM audit WHERE detail LIKE ? OR detail LIKE ? ORDER BY id DESC LIMIT 200', `%${mark},%`, `%${mark}}%`).map((r) => {
         const { 누가, 주소, ...rest } = JSON.parse(r.detail) // 누가 · 어디서는 빼고 한 일만
-        return { at: r.at, action: r.action, by: 누가 ?? null, detail: rest }
+        // 관리자 계정 이름은 밖에 보이지 않게 ‘운영자’로 (방장 · 공동 진행자는 그대로)
+        return { at: r.at, action: r.action, by: !누가 ? null : ['방장', '공동 진행자'].includes(누가) ? 누가 : '운영자', detail: rest }
       }),
     })
   }
@@ -1064,7 +1179,7 @@ async function api(req, res, url) {
   }
 
   if (!path.startsWith('/api/admin/')) throw new Bad(404, '없는 주소예요')
-  // 여기부터는 관리자, 또는 자기 방을 다루는 방장만. 방장은 방 · 안건 주소에서 자기 방일 때만 지나가요.
+  // 여기부터는 관리자, 또는 자기 방을 다루는 방장만. 방장은 방 · 주제 주소에서 자기 방일 때만 지나가요.
   const me = ENABLED ? adminOf(req) : null
   const admin = !!me
   const hs = hostOf(req)
@@ -1082,7 +1197,7 @@ async function api(req, res, url) {
     if (hs.roomId !== room.id) throw new Bad(403, '이 방의 진행자만 할 수 있어요')
     return hs.role
   }
-  /** 방 지우기 · 끝내기 · 설정 바꾸기는 방장(과 관리자)만. 공동 진행자는 안건 진행만 해요. */
+  /** 방 지우기 · 끝내기 · 설정 바꾸기는 방장(과 관리자)만. 공동 진행자는 주제 진행만 해요. */
   const ownerOnly = (room) => {
     if (mayManage(room) === 'cohost') throw new Bad(403, '방장만 할 수 있어요')
   }
@@ -1182,7 +1297,7 @@ async function api(req, res, url) {
     }
   }
 
-  // ── 안건 묶음: 관리자들이 어느 기기에서나 같이 써요 (방장은 자기 브라우저 · 파일로) ──
+  // ── 주제 묶음: 관리자들이 어느 기기에서나 같이 써요 (방장은 자기 브라우저 · 파일로) ──
   if (path === '/api/admin/bundles' && m === 'GET') {
     adminOnly()
     return ok({ bundles: all('SELECT id, name, items FROM bundles ORDER BY updated_at DESC').map((x) => ({ id: x.id, name: x.name, items: JSON.parse(x.items) })) })
@@ -1191,7 +1306,7 @@ async function api(req, res, url) {
     adminOnly()
     const b = await body(req)
     const name = text(b.name, '묶음 이름', 40)
-    if (!Array.isArray(b.items) || !b.items.length || b.items.length > 50) throw new Bad(400, '안건은 1개부터 50개까지 담을 수 있어요')
+    if (!Array.isArray(b.items) || !b.items.length || b.items.length > 50) throw new Bad(400, '주제는 1개부터 50개까지 담을 수 있어요')
     const items = b.items.map((it) => itemFields(it, { owner: 'admin', seconds: DEFAULT_SECONDS })) // 모양을 한 번 걸러서 저장해요
     if (!get('SELECT 1 x FROM bundles WHERE name=?', name) && get('SELECT COUNT(*) n FROM bundles').n >= 100) throw new Bad(400, '묶음은 100개까지 저장할 수 있어요')
     run('INSERT INTO bundles(name, items, updated_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET items=excluded.items, updated_at=excluded.updated_at', name, JSON.stringify(items), Date.now())
@@ -1203,13 +1318,19 @@ async function api(req, res, url) {
     return ok()
   }
 
-  // ── 신고 · 금칙어 · 막은 곳 ──
+  // ── 신고 · 막을 낱말 · 막은 곳 ──
+  if ((r0 = /^\/api\/admin\/feedback\/(\d+)$/.exec(path)) && m === 'DELETE') {
+    adminOnly()
+    run('DELETE FROM feedback WHERE id=?', Number(r0[1]))
+    return ok()
+  }
   if (path === '/api/admin/reports' && m === 'GET') {
     adminOnly()
     return ok({
       open: get('SELECT COUNT(*) n FROM reports WHERE handled=0').n,
       reports: all('SELECT id, room_id AS roomId, room_code AS roomCode, room_title AS roomTitle, reason, note, at, handled FROM reports ORDER BY handled, id DESC LIMIT 200').map((x) => ({ ...x, handled: !!x.handled })),
       banned: setting('banned'),
+      feedback: all('SELECT id, at, kind, note, page, ua FROM feedback ORDER BY id DESC LIMIT 200'),
       blocks: all('SELECT creator, at, why, until FROM blocks WHERE until IS NULL OR until > ? ORDER BY at DESC', Date.now()),
     })
   }
@@ -1218,11 +1339,19 @@ async function api(req, res, url) {
     run('UPDATE reports SET handled=1 WHERE id=?', Number(r0[1]))
     return ok()
   }
+  // 신고 지우기: 확인을 마친 신고를 운영자가 지워요 (개인정보 처리방침의 ‘신고는 운영자가 지울 때까지’). 지운 일은 기록에 남아요 (내용은 빼고)
+  if ((r0 = /^\/api\/admin\/reports\/(\d+)$/.exec(path)) && m === 'DELETE') {
+    adminOnly()
+    const gone = run('DELETE FROM reports WHERE id=? AND handled=1', Number(r0[1])).changes
+    if (!gone) throw new Bad(409, '‘확인했어요’를 누른 신고만 지울 수 있어요')
+    audit('신고 지움', { 신고: Number(r0[1]) })
+    return ok()
+  }
   if (path === '/api/admin/banned' && m === 'PUT') {
     adminOnly()
     const words = String((await body(req)).words ?? '').slice(0, 4000)
     setSetting('banned', words)
-    audit('금칙어 바꿈', { 개수: words.split('\n').filter((w) => w.trim().length >= 2).length })
+    audit('막을 낱말 바꿈', { 개수: words.split('\n').filter((w) => w.trim().length >= 2).length })
     return ok()
   }
   if ((r0 = /^\/api\/admin\/blocks\/([a-f0-9]{32})$/.exec(path)) && m === 'DELETE') {
@@ -1264,6 +1393,15 @@ async function api(req, res, url) {
     return ok(org())
   }
 
+  // 적어 둔 기록 지문이 지금 기록 안에 있는지 (?m=지문)
+  if (path === '/api/admin/audit/mark' && m === 'GET') {
+    adminOnly()
+    const typed = String(url.searchParams.get('m') ?? '').replace(/[^0-9a-f]/gi, '').toLowerCase()
+    if (typed.length !== 12) throw new Bad(400, '지문은 12자리예요 (예: 3FA2-9C01-77BE)')
+    const row = get('SELECT id, at FROM audit WHERE hash LIKE ?', `${typed}%`)
+    return ok({ found: !!row, at: row?.at ?? null, pos: row ? get('SELECT COUNT(*) AS n FROM audit WHERE id<=?', row.id).n : 0, intact: auditIntact(), ...auditMark() })
+  }
+
   // 기록 보기 · 찾기 (?q=글자 &from= &to= 밀리초) · 내려받기(.csv)
   if ((path === '/api/admin/audit' || path === '/api/admin/audit.csv') && m === 'GET') {
     adminOnly()
@@ -1272,7 +1410,7 @@ async function api(req, res, url) {
     const to = Number(url.searchParams.get('to')) || 9e15
     const csv = path.endsWith('.csv')
     const rows = all(`SELECT id, at, action, detail FROM audit WHERE (action LIKE ? OR detail LIKE ?) AND at BETWEEN ? AND ? ORDER BY id DESC LIMIT ${csv ? 20_000 : 500}`, q, q, from, to)
-    if (!csv) return ok({ intact: auditIntact(), rows: rows.map((r) => ({ ...r, detail: JSON.parse(r.detail) })) })
+    if (!csv) return ok({ intact: auditIntact(), ...auditMark(), sealed: !!AUDIT_SECRET, rows: rows.map((r) => ({ ...r, detail: JSON.parse(r.detail) })) })
     res.writeHead(200, { ...SECURITY, 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': 'attachment; filename="mypick-기록.csv"'.replace('기록', 'audit') })
     return res.end('\ufeff' + [['번호', '때', '한 일', '누가', '자세히'], ...rows.map((r) => [r.id, new Date(r.at).toISOString(), r.action, JSON.parse(r.detail).누가 ?? '', r.detail])].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n')
   }
@@ -1302,7 +1440,7 @@ async function api(req, res, url) {
       // 픽이 열려 있는 동안에는 받은 픽 공개 방식을 못 바꿔요 (도중에 켜서 엿보지 못하게)
       if (f.live !== room.live && get("SELECT 1 x FROM items WHERE room_id=? AND status='open'", room.id)) throw new Bad(409, '픽이 열려 있는 동안에는 결과 공개 방식을 바꿀 수 없어요')
       const pass = b.clearPassword ? null : f.password ? hashPass(f.password) : room.pass_hash
-      run('UPDATE rooms SET title=?, pass_hash=?, capacity=?, live=?, seconds=?, grace=?, close_all=? WHERE id=?', f.title, pass, f.capacity, f.live, f.seconds, f.grace, f.closeAll, room.id)
+      run('UPDATE rooms SET title=?, pass_hash=?, capacity=?, live=?, seconds=?, grace=?, close_all=?, easy=? WHERE id=?', f.title, pass, f.capacity, f.live, f.seconds, f.grace, f.closeAll, f.easy, room.id)
       audit('방 설정 바꿈', { 방: room.id, 이름: f.title, 실시간공개: !!f.live, 정원: f.capacity, 비밀번호바꿈: pass !== room.pass_hash })
       ping(room.id)
       return ok()
@@ -1319,16 +1457,16 @@ async function api(req, res, url) {
     const room = roomById(r[1])
     if (!room) throw new Bad(404, '없는 방이에요')
     mayManage(room)
-    const rows = [['방 이름', room.title], ['방 번호', room.code], ['내려받은 때', new Date().toISOString()], [], ['안건', '선택지', '받은 픽', '픽한 사람', '들어온 사람', '기권', '마감 까닭', '판정', '결과 확인 코드']]
+    const rows = [['방 이름', room.title], ['방 번호', room.code], ['내려받은 때', new Date().toISOString()], [], ['주제', '선택지', '받은 픽', '픽한 사람', '들어온 사람', '건너뜀', '마감 까닭', '통과 여부', '결과 확인 코드']]
     for (const it of all("SELECT * FROM items WHERE room_id=? AND status='closed' ORDER BY pos, id", room.id)) {
-      const verdict = { pass: '가결', fail: '부결' }[outcomeOf(it)] ?? ''
+      const verdict = { pass: '통과', fail: '통과 못 함' }[outcomeOf(it)] ?? ''
       for (const o of all('SELECT label, votes FROM options WHERE item_id=? ORDER BY pos', it.id)) rows.push([it.practice ? `(연습) ${it.title}` : it.title, o.label, o.votes, it.voted, it.eligible, it.abstain, it.reason, verdict, it.proof])
     }
     res.writeHead(200, { ...SECURITY, 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="mypick-${room.code}.csv"` })
     return res.end('\ufeff' + rows.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n')
   }
 
-  if ((r = /^\/api\/admin\/rooms\/(\d+)\/(lock|close|codes|items|cohost|block|clone|archive|keep|screen|order|logo|rehearse)$/.exec(path))) {
+  if ((r = /^\/api\/admin\/rooms\/(\d+)\/(lock|close|codes|items|cohost|block|clone|archive|keep|screen|order|logo|rehearse|hands)$/.exec(path))) {
     const room = roomById(r[1])
     if (!room) throw new Bad(404, '없는 방이에요')
     mayManage(room)
@@ -1402,11 +1540,11 @@ async function api(req, res, url) {
       return ok()
     }
 
-    // 안건 순서 한 번에 바꾸기 (준비 중인 안건끼리만): 지금 쓰는 자리 번호들을 새 순서대로 다시 나눠 줘요
+    // 주제 순서 한 번에 바꾸기 (준비 중인 주제끼리만): 지금 쓰는 자리 번호들을 새 순서대로 다시 나눠 줘요
     if (what === 'order' && m === 'POST') {
       const ids = (await body(req)).ids
       const drafts = all("SELECT id, pos FROM items WHERE room_id=? AND status='draft' ORDER BY pos, id", room.id)
-      if (!Array.isArray(ids) || ids.length !== drafts.length || new Set(ids).size !== ids.length || !ids.every((id) => drafts.some((d) => d.id === id))) throw new Bad(400, '준비 중인 안건만 모두 담아 순서를 보내 주세요')
+      if (!Array.isArray(ids) || ids.length !== drafts.length || new Set(ids).size !== ids.length || !ids.every((id) => drafts.some((d) => d.id === id))) throw new Bad(400, '준비 중인 주제만 모두 담아 순서를 보내 주세요')
       tx(() => ids.forEach((id, i) => run('UPDATE items SET pos=? WHERE id=?', drafts[i].pos, id)))
       ping(room.id)
       return ok()
@@ -1422,14 +1560,19 @@ async function api(req, res, url) {
         ping(room.id)
         return ok()
       }
-      if (room.logo) rmSync(join(UPLOADS, room.logo.slice('/uploads/'.length)), { force: true })
       let logo = null
+      let buf = null
+      let kind = null
       if (m === 'POST') {
-        const buf = await readRaw(req, MAX_LOGO).catch(() => {
+        buf = await readRaw(req, MAX_LOGO).catch(() => {
           throw new Bad(413, `사진이 너무 커요 (${MAX_LOGO / 1024 / 1024}MB 까지)`)
         })
-        const kind = imageKind(buf)
+        kind = imageKind(buf)
         if (!kind) throw new Bad(415, 'PNG · JPG · WebP 사진만 올릴 수 있어요')
+      }
+      // 새 사진이 괜찮은 것을 확인한 뒤에 옛 사진을 지워요 (잘못된 파일을 올렸다고 있던 로고가 사라지면 안 돼요)
+      if (room.logo && LOGO_NAME.test(room.logo.slice('/uploads/'.length))) rmSync(join(UPLOADS, room.logo.slice('/uploads/'.length)), { force: true })
+      if (m === 'POST') {
         const name = `room-${randomBytes(8).toString('hex')}.${kind}`
         await writeFile(join(UPLOADS, name), buf)
         logo = `/uploads/${name}`
@@ -1471,7 +1614,23 @@ async function api(req, res, url) {
       return ok()
     }
 
-    if (what === 'codes' && m === 'GET') return ok({ codes: all('SELECT code, voter_id IS NOT NULL AS used FROM codes WHERE room_id=? ORDER BY code', room.id).map((c) => ({ code: c.code, used: !!c.used })) })
+    // 든 손 모두 내리기 (대답을 마친 뒤)
+    if (what === 'hands' && m === 'DELETE') {
+      hands.delete(room.id)
+      ping(room.id)
+      return ok()
+    }
+    if (what === 'codes' && m === 'GET') return ok({ codes: all('SELECT code, voter_id IS NOT NULL AS used, reopen FROM codes WHERE room_id=? ORDER BY code', room.id).map((c) => ({ code: c.code, used: !!c.used, reopen: !!c.reopen })) })
+    // 쓴 코드 다시 열기: 진행자가 실물 코드를 확인한 뒤 한 번 더 들어올 수 있게 해요 (들어오면 다시 닫혀요)
+    if (what === 'codes' && m === 'PUT') {
+      const code = cleanCode((await body(req)).code)
+      const entry = get('SELECT * FROM codes WHERE room_id=? AND code=?', room.id, code)
+      if (!entry) throw new Bad(404, '이 방에 없는 코드예요. 다시 확인해 주세요.')
+      if (!entry.voter_id) throw new Bad(409, '아직 쓰지 않은 코드예요. 그대로 쓰면 돼요.')
+      run('UPDATE codes SET reopen=1 WHERE room_id=? AND code=?', room.id, code)
+      audit('입장 코드 다시 엶', { 방: room.id, 코드끝: code.slice(-3) })
+      return ok()
+    }
     if (what === 'codes' && m === 'POST') {
       if (room.mode !== 'strict') throw new Bad(400, '엄격 방식 방에서만 입장 코드를 만들 수 있어요')
       const count = int((await body(req)).count, '만들 개수', 1, 500)
@@ -1484,7 +1643,7 @@ async function api(req, res, url) {
     }
 
     if (what === 'items' && m === 'POST') {
-      if (room.closed) throw new Bad(409, '끝난 방에는 안건을 더할 수 없어요')
+      if (room.closed) throw new Bad(409, '끝난 방에는 주제를 더할 수 없어요')
       const f = itemFields(await body(req), room)
       const id = addItem(room.id, f)
       ping(room.id)
@@ -1492,16 +1651,16 @@ async function api(req, res, url) {
     }
   }
 
-  if ((r = /^\/api\/admin\/items\/(\d+)(?:\/(open|close|copy|runoff|extend|move|schedule|memo|nudge))?$/.exec(path))) {
+  if ((r = /^\/api\/admin\/items\/(\d+)(?:\/(open|close|copy|runoff|extend|move|schedule|memo|nudge|pause|resume))?$/.exec(path))) {
     const item = get('SELECT * FROM items WHERE id=?', Number(r[1]))
-    if (!item) throw new Bad(404, '없는 안건이에요')
+    if (!item) throw new Bad(404, '없는 주제예요')
     const room = roomById(item.room_id)
     mayManage(room)
     const act = r[2]
 
     if (!act && (m === 'PUT' || m === 'DELETE')) {
-      // 공정성: 한 번 연 안건은 고치거나 지울 수 없어요
-      if (item.status !== 'draft') throw new Bad(409, '이미 열었던 안건은 고치거나 지울 수 없어요')
+      // 공정성: 한 번 연 주제는 고치거나 지울 수 없어요
+      if (item.status !== 'draft') throw new Bad(409, '이미 열었던 주제는 고치거나 지울 수 없어요')
       if (m === 'DELETE') run('DELETE FROM items WHERE id=?', item.id)
       else {
         const f = itemFields(await body(req), room)
@@ -1516,15 +1675,32 @@ async function api(req, res, url) {
 
     if (act === 'open' && m === 'POST') {
       if (room.closed) throw new Bad(409, '끝난 방이에요')
-      if (item.status !== 'draft') throw new Bad(409, '이미 열었던 안건이에요. 다시 하려면 ‘복사’로 새 안건을 만들어 주세요.')
-      if (item.quorum && joinedCount(room.id) < item.quorum) throw new Bad(409, `정족수 ${item.quorum}명이 안 됐어요 (지금 들어온 사람 ${joinedCount(room.id)}명)`)
-      if (get("SELECT 1 x FROM items WHERE room_id=? AND status='open'", room.id)) throw new Bad(409, '열려 있는 안건을 먼저 마감해 주세요')
+      if (item.status !== 'draft') throw new Bad(409, '이미 열었던 주제예요. 다시 하려면 ‘복사’로 새 주제를 만들어 주세요.')
+      if (item.quorum && joinedCount(room.id) < item.quorum) throw new Bad(409, `최소 참여 인원 ${item.quorum}명이 안 됐어요 (지금 들어온 사람 ${joinedCount(room.id)}명)`)
+      if (get("SELECT 1 x FROM items WHERE room_id=? AND status='open'", room.id)) throw new Bad(409, '열려 있는 주제를 먼저 마감해 주세요')
       openItem(item, room, '직접')
       return ok()
     }
 
+    // 쉬어 가기: 남은 시간을 그대로 얼리고, 그동안은 픽을 받지 않아요 (설명을 더 할 때). 다시 시작하면 남은 시간부터 이어져요.
+    if (act === 'pause' && m === 'POST') {
+      if (item.status !== 'open' || item.paused) throw new Bad(409, '열려 있고 진행 중인 주제만 멈출 수 있어요')
+      const left = item.closes_at ? Math.max(1000, item.closes_at - Date.now()) : null
+      run("UPDATE items SET paused=1, paused_left=?, closes_at=NULL WHERE id=? AND status='open'", left, item.id)
+      audit('주제 멈춤', { 방: room.id, 주제: item.id, 제목: item.title, 남은초: left === null ? null : Math.round(left / 1000) })
+      ping(room.id)
+      return ok()
+    }
+    if (act === 'resume' && m === 'POST') {
+      if (item.status !== 'open' || !item.paused) throw new Bad(409, '멈춘 주제가 아니에요')
+      run("UPDATE items SET paused=0, closes_at=?, paused_left=NULL WHERE id=? AND status='open'", item.paused_left === null ? null : Date.now() + item.paused_left, item.id)
+      audit('주제 다시 시작', { 방: room.id, 주제: item.id, 제목: item.title })
+      ping(room.id)
+      return ok()
+    }
+
     if (act === 'close' && m === 'POST') {
-      if (item.status !== 'open') throw new Bad(409, '열려 있는 안건이 아니에요')
+      if (item.status !== 'open') throw new Bad(409, '열려 있는 주제가 아니에요')
       closeItem(item, '진행자가 마감')
       return ok()
     }
@@ -1539,15 +1715,15 @@ async function api(req, res, url) {
       return ok()
     }
 
-    // 결선: 가장 많이 받은 선택지가 둘 이상(동점)일 때, 그 선택지들만으로 새 안건을 만들어요
+    // 다시 고르기: 가장 많이 받은 선택지가 둘 이상(동점)일 때, 그 선택지들만으로 새 주제를 만들어요
     if (act === 'runoff' && m === 'POST') {
       if (room.closed) throw new Bad(409, '끝난 방이에요')
-      if (item.status !== 'closed') throw new Bad(409, '마감된 안건에서만 결선을 만들 수 있어요')
+      if (item.status !== 'closed') throw new Bad(409, '마감된 주제에서만 동점 가리기를 만들 수 있어요')
       const opts = labels()
       const top = Math.max(0, ...opts.map((o) => o.votes))
       const tied = opts.filter((o) => o.votes === top)
       if (top === 0 || tied.length < 2) throw new Bad(409, '동점이 아니에요')
-      addItem(room.id, { ...base, maxPick: 1, rule: 'none', title: `${item.title} (결선)`.slice(0, 100), options: tied.map((o) => o.label) })
+      addItem(room.id, { ...base, maxPick: 1, rule: 'none', title: `${item.title} (동점 가리기)`.slice(0, 100), options: tied.map((o) => o.label) })
       ping(room.id)
       return ok()
     }
@@ -1555,10 +1731,11 @@ async function api(req, res, url) {
     // 시간 연장: 열려 있는 동안만. 누가 언제 늘렸는지 기록에 남아요.
     if (act === 'extend' && m === 'POST') {
       const add = int((await body(req)).seconds, '늘릴 시간', 10, 600)
-      if (item.status !== 'open' || !item.closes_at) throw new Bad(409, '제한 시간이 있는 열린 안건만 늘릴 수 있어요')
+      if (item.status !== 'open' || !(item.closes_at || item.paused_left)) throw new Bad(409, '제한 시간이 있는 열린 주제만 늘릴 수 있어요')
       if (item.seconds + add > 7200) throw new Bad(409, '더는 늘릴 수 없어요')
-      run("UPDATE items SET closes_at=closes_at+?, seconds=seconds+? WHERE id=? AND status='open'", add * 1000, add, item.id)
-      audit('시간 연장', { 방: room.id, 안건: item.id, 제목: item.title, 늘린초: add })
+      if (item.paused) run("UPDATE items SET paused_left=paused_left+?, seconds=seconds+? WHERE id=? AND status='open'", add * 1000, add, item.id)
+      else run("UPDATE items SET closes_at=closes_at+?, seconds=seconds+? WHERE id=? AND status='open'", add * 1000, add, item.id)
+      audit('시간 연장', { 방: room.id, 주제: item.id, 제목: item.title, 늘린초: add })
       ping(room.id)
       return ok()
     }
@@ -1572,7 +1749,7 @@ async function api(req, res, url) {
 
     // 참여 독려: 아직 픽하지 않은 사람의 화면에만 알림이 떠요. 누가 안 했는지는 진행자도 몰라요.
     if (act === 'nudge' && m === 'POST') {
-      if (item.status !== 'open') throw new Bad(409, '열려 있는 안건이 아니에요')
+      if (item.status !== 'open') throw new Bad(409, '열려 있는 주제가 아니에요')
       if (item.nudge_at && Date.now() - item.nudge_at < 20_000) throw new Bad(429, '방금 알렸어요. 잠시 뒤에 다시 해 주세요.')
       run('UPDATE items SET nudge_at=? WHERE id=?', Date.now(), item.id)
       ping(room.id)
@@ -1582,7 +1759,7 @@ async function api(req, res, url) {
     // 예약: at 여는 때 · closeAt 마감 때. 보낸 것만 바꾸고, null 이면 그 예약을 지워요.
     if (act === 'schedule' && m === 'POST') {
       const b = await body(req)
-      if (item.status !== 'draft') throw new Bad(409, '열지 않은 안건만 예약할 수 있어요')
+      if (item.status !== 'draft') throw new Bad(409, '열지 않은 주제만 예약할 수 있어요')
       if (room.closed) throw new Bad(409, '끝난 방이에요')
       const days = room.owner === 'host' ? KEEP_DAYS : 30
       const at = 'at' in b ? b.at : item.open_at
@@ -1596,15 +1773,15 @@ async function api(req, res, url) {
       if (at !== null || closeAt !== null) touch(room.id)
       run('UPDATE items SET open_at=?, close_at=? WHERE id=?', at, closeAt, item.id)
       const iso = (t) => (t ? new Date(t).toISOString() : '없음')
-      audit(at || closeAt ? '안건 예약' : '안건 예약 취소', { 방: room.id, 안건: item.id, 제목: item.title, 여는때: iso(at), 마감때: iso(closeAt) })
+      audit(at || closeAt ? '주제 예약' : '주제 예약 취소', { 방: room.id, 주제: item.id, 제목: item.title, 여는때: iso(at), 마감때: iso(closeAt) })
       ping(room.id)
       return ok()
     }
 
-    // 순서 바꾸기: 아직 열지 않은 안건끼리만 (이미 한 픽의 순서는 그대로 남아야 해요)
+    // 순서 바꾸기: 아직 열지 않은 주제끼리만 (이미 한 픽의 순서는 그대로 남아야 해요)
     if (act === 'move' && m === 'POST') {
       const up = (await body(req)).dir === 'up'
-      if (item.status !== 'draft') throw new Bad(409, '열지 않은 안건만 순서를 바꿀 수 있어요')
+      if (item.status !== 'draft') throw new Bad(409, '열지 않은 주제만 순서를 바꿀 수 있어요')
       const other = get(`SELECT * FROM items WHERE room_id=? AND status='draft' AND pos ${up ? '<' : '>'} ? ORDER BY pos ${up ? 'DESC' : 'ASC'} LIMIT 1`, room.id, item.pos)
       if (other)
         tx(() => {
@@ -1652,7 +1829,7 @@ async function staticFile(req, res, path) {
   if (st?.isFile()) return serveFile(req, res, file, rel.startsWith('/assets/') || rel.startsWith('/fonts/pretendard/') ? 'public, max-age=31536000, immutable' : 'no-cache')
   if (extname(rel)) throw new Bad(404, '없는 파일이에요')
   // 알고 있는 화면 주소만 200 으로 (/ · /m · /new · /host · /admin · /screen/방번호)
-  const known = /^\/(m|new|host|remote|guide|verify|terms|privacy|admin|(screen|observe)\/\d{6})?\/?$/.test(rel)
+  const known = /^\/(m|new|host|remote|guide|about|feedback|verify|terms|privacy|admin|(screen|observe)\/\d{6})?\/?$/.test(rel)
   const [html, extra] = pack(res, await readFile(join(STATIC, 'index.html')))
   res.writeHead(known ? 200 : 404, { ...SECURITY, 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache', ...extra })
   res.end(req.method === 'HEAD' ? undefined : html)
@@ -1660,6 +1837,7 @@ async function staticFile(req, res, path) {
 
 const server = createServer(async (req, res) => {
   res.enc = String(req.headers['accept-encoding'] || '')
+  if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000') // HTTPS 로 한 번 온 브라우저는 계속 HTTPS 로만
   try {
     const url = new URL(req.url, 'http://x')
     const path = url.pathname

@@ -1,6 +1,6 @@
 {
   "name": "my-pick",
-  "version": "0.1.0-dev",
+  "version": "0.2.0",
   "description": "My Pick — 익명으로 함께 고르는 My Pick",
   "private": true,
   "type": "module",

@@ -174,7 +174,7 @@
 }
 
 /* ── 태블릿(넓은 화면): 왼쪽에 지금 안건, 오른쪽에 지난 안건 ── */
-@media (min-width: 900px) {
+@media (min-width: 700px) {
   .m:not(.m-home) {
     max-width: 1180px;
   }
@@ -195,5 +195,231 @@
   .m .ballot > .actions,
   .m .confirm {
     width: min(100%, 1180px);
+  }
+}
+
+/* ── 가로로 눕힌 휴대폰(높이가 낮을 때): 머리줄과 아래 버튼이 화면을 덜 가리게 ── */
+@media (orientation: landscape) and (max-height: 520px) {
+  .m-bar {
+    position: static;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .m-room {
+    grid-auto-flow: column;
+    justify-content: start;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .m .ballot > .actions,
+  .m .confirm {
+    position: sticky;
+    width: auto;
+    transform: none;
+    left: auto;
+  }
+  .m-main {
+    padding-bottom: 24px;
+  }
+  .m .row {
+    min-height: 56px;
+  }
+  .m-join .art {
+    display: none;
+  }
+}
+/* 가로로 눕힌 태블릿: 두 칸 그대로, 글자만 조금 작게 */
+@media (orientation: landscape) and (min-width: 900px) and (max-height: 800px) {
+  .m {
+    font-size: 17px;
+  }
+}
+
+/* ── 옆 칸: 방 정보 · 지난 결과 · 안내 (휴대폰에서는 아래로 흘러요) ── */
+.m-side {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  margin-top: 18px;
+}
+.m-info {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--sheet);
+  box-shadow: var(--shadow-1);
+}
+.m-info h2 {
+  font-size: 1.05rem;
+}
+.m-info .agenda {
+  max-width: none;
+  margin: 0;
+}
+.m-info dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.m-info dl > div {
+  padding: 8px;
+  border-radius: var(--r-sm);
+  background: var(--paper);
+}
+.m-info dt {
+  font-size: 0.8rem;
+  color: var(--mute);
+}
+.m-info dd {
+  font-size: 1rem;
+  white-space: nowrap;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.m-side .m-past {
+  margin-top: 0;
+}
+.m-side .privacy {
+  margin-top: 0;
+}
+@media (min-width: 700px) {
+  .m-main > .m-side {
+    grid-column: 2;
+    grid-row: 1 / span 6;
+    margin-top: 0;
+    position: sticky;
+    top: 110px;
+  }
+}
+
+/* ── 태블릿 첫 화면: 그림과 들어가기 칸을 나란히 ── */
+@media (min-width: 700px) {
+  .m-home {
+    max-width: 920px;
+  }
+  .m-join {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    column-gap: 36px;
+    align-items: center;
+    padding-top: 24px;
+  }
+  .m-join > * {
+    grid-column: 2;
+  }
+  .m-join > .art {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    max-width: 340px;
+    display: block;
+  }
+  .m-join > .door,
+  .m-join > .view-switch {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ── 태블릿: 버튼 줄을 화면 맨 아래 띠가 아니라 픽 카드 안에 (고르는 곳 바로 아래) ── */
+@media (min-width: 700px) and (min-height: 521px) {
+  .m .ballot > .actions,
+  .m .confirm {
+    position: sticky;
+    left: auto;
+    right: auto;
+    width: auto;
+    transform: none;
+    box-shadow: none;
+  }
+  .m .ballot > .actions {
+    padding: 14px 18px;
+  }
+  .m .confirm {
+    padding: 18px;
+  }
+}
+/* ── 휴대폰: 막 마감된 뒤에는 기다림 칸을 줄이고, 방금 결과를 그 바로 아래에 ── */
+@media (max-width: 699px) {
+  .m-main[data-after] .wait {
+    padding: 18px 16px;
+  }
+  .m-main[data-after] .wait svg.art {
+    display: none;
+  }
+  .m-main[data-after] .m-past {
+    order: -1;
+    margin-top: 0;
+  }
+  .m-join .art {
+    max-width: 230px;
+  }
+}
+
+/* 긴 방 이름 · 긴 주제 제목이 머리줄과 카드를 다 차지하지 않게 */
+.m-room strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.m .sheet-head h2[data-len='l'] {
+  font-size: 1.25rem;
+}
+.m .sheet-head h2[data-len='xl'] {
+  font-size: 1.1rem;
+}
+
+/* ── 머리줄 오른쪽: 글자 크기 · 한 손 모드, 처음 한 번 말풍선 ── */
+.m-tools {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.hand-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 6;
+  width: min(260px, 70vw);
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--on-ink);
+  font: inherit;
+  font-size: 0.93rem;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+}
+.hand-tip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 16px;
+  border: 6px solid transparent;
+  border-top: 0;
+  border-bottom-color: var(--ink);
+}
+.hand-tip strong {
+  display: block;
+}
+/* ── 휴대폰: ‘지금 이 방은’ 칸이 머리줄의 방 번호 · 접속 인원을 되풀이하지 않게 ── */
+@media (max-width: 699px) {
+  .m-info dl,
+  .m-info > .tip {
+    display: none;
+  }
+  .m-info[data-quiet] {
+    display: none;
+  }
+}
+
+/* 휴대폰의 확인 칸: 화면 아래에서 올라와요 (화면 안 확인 창과 같은 움직임). 태블릿 · 가로에서는 카드 안에서 떠올라요 */
+@media (max-width: 699px) and (min-height: 521px) {
+  .m .confirm {
+    animation: sheet-up var(--dur-3) var(--ease);
   }
 }

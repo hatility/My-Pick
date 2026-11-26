@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 보안 문제 알리기
+    url: https://github.com/hatility/My-Pick/security/advisories/new
+    about: 다른 사람의 결과가 보이거나 여러 번 참여할 수 있는 것 같은 문제는 공개 글 대신 여기로 알려 주세요.
