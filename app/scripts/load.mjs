@@ -104,7 +104,7 @@ try {
   console.log(`✓ ${N}명 시험을 지나갔어요 (${base})`)
   console.log(`  입장: 모두 ${Math.round(joinTotal)}ms, 한 명 가운데값 ${pct(joinMs, 0.5)}ms · 느린 쪽(95%) ${pct(joinMs, 0.95)}ms`)
   console.log(`  픽: 모두 ${Math.round(voteTotal)}ms, 한 명 가운데값 ${pct(voteMs, 0.5)}ms · 느린 쪽(95%) ${pct(voteMs, 0.95)}ms · 가장 느린 ${Math.round(Math.max(...voteMs))}ms`)
-  console.log(`  마지막 표 → 자동 마감: ${Math.round(closeMs)}ms`)
+  console.log(`  마지막 픽 → 자동 마감: ${Math.round(closeMs)}ms`)
   console.log(`  받은 픽 ${want.join(' / ')} (합 ${N}) 정확, 두 번 누른 ${doubles}명 모두 거부, 받은 실시간 알림 ${pings}개`)
 } finally {
   hold.abort()

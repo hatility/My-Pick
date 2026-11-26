@@ -296,7 +296,7 @@ try {
 
   writeFileSync(
     `${out}/사진 목록.md`,
-    `# My Pick 예시 사진\n\n0.2.0 을 실제로 띄워 찍은 화면이에요. ‘가을 축제 준비’ 방에 27명이 들어와 주제 두 개를 픽하는 장면이고, 이름과 숫자는 모두 지어낸 예시예요.\n\n| 사진 | 설명 |\n|---|---|\n${list.map(([f, c]) => `| ${f.replace(/\.png$/, '')} | ${c} |`).join('\n')}\n`,
+    `# My Pick 예시 사진\n\n1.0.0 을 실제로 띄워 찍은 화면이에요. ‘가을 축제 준비’ 방에 27명이 들어와 주제 두 개를 픽하는 장면이고, 이름과 숫자는 모두 지어낸 예시예요.\n\n| 사진 | 설명 |\n|---|---|\n${list.map(([f, c]) => `| ${f.replace(/\.png$/, '')} | ${c} |`).join('\n')}\n`,
   )
   execFileSync('zip', ['-qr', '../My Pick 예시 사진.zip', '.', '-x', '*.DS_Store'], { cwd: out })
   console.log(`\n✓ 사진 ${list.length}장을 만들었어요: ${out} (묶음: ../docs/My Pick 예시 사진.zip)`)

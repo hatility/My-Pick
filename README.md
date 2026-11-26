@@ -12,13 +12,13 @@
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-14213d)](LICENSE)
 ![Docker](https://img.shields.io/badge/docker-compose-cf2a2a)
 ![Node](https://img.shields.io/badge/node-24-14213d)
-![Version](https://img.shields.io/badge/version-0.2.0-56607a)
+![Version](https://img.shields.io/badge/version-1.0.0-cf2a2a)
 
 <img src="docs/screenshots/home-pc.png" width="820" alt="My Pick 첫 화면" />
 
 </div>
 
-> 지금 버전은 0.2.0 이에요. 바뀐 것은 [CHANGELOG.md](CHANGELOG.md) 에 있어요.
+> **1.0.0 — 첫 정식 버전이에요.** 바뀐 것은 [CHANGELOG.md](CHANGELOG.md) 에 있어요.
 
 ## 이렇게 써요
 
@@ -67,14 +67,21 @@
 
 ## 바로 띄우기
 
-Docker 만 있으면 돼요.
+Docker 만 있으면 돼요. [Releases](https://github.com/hatility/My-Pick/releases) 의 `my-pick-v1.0.0.zip` 을 받아 풀거나, 저장소를 받아요.
 
 ```bash
 git clone https://github.com/hatility/My-Pick.git
 cd My-Pick
-cp .env.example .env        # ADMIN_PASSWORD 를 8자 이상으로 바꿔 주세요
+cp .env.example .env        # 아래 ‘정식으로 운영하기 전에’ 의 네 가지를 정해 주세요
 docker compose up -d --build
 ```
+
+**정식으로 운영하기 전에** `.env` 에서 꼭 정해 주세요.
+
+1. `ADMIN_PASSWORD`: 관리자 비밀번호 (8자 이상)
+2. `CONTACT`: 운영하는 곳의 연락처. 개인정보 처리방침의 ‘개인정보 보호책임자 · 문의’ 에 나와요
+3. `AUDIT_SECRET`: 기록을 봉하는 열쇠 (`openssl rand -hex 32`). 백업과 함께 안전한 곳에 적어 두세요
+4. 밖에서 쓸 때는 `SITE_URL` · `DOMAIN` 을 넣고 HTTPS 로 띄우기 (아래)
 
 | 주소 | 무엇 |
 |---|---|
@@ -86,13 +93,25 @@ docker compose up -d --build
 밖에서 쓸 때는 HTTPS 로 띄워 주세요: `.env` 에 `DOMAIN` · `SITE_URL` 을 넣고
 `docker compose -f docker-compose.yml -f app/docker-compose.https.yml up -d --build`
 
+### 백업 · 되살리기 · 새 버전으로 올리기
+
+```bash
+./backup.sh                      # 서버를 멈추지 않고 backups/mypick-날짜.db 로 사본
+./restore.sh backups/mypick-….db # 그 사본으로 되살리기 (새 서버로 옮길 때도). 바꾸기 전 파일은 볼륨 안에 남아요
+```
+
+서버도 하루 한 번 스스로 백업하고, 관리자 화면 ‘설정 → 백업’ 에서 내려받거나 되돌릴 수 있어요.
+새 버전으로 올릴 때는 `./backup.sh` 를 한 번 한 뒤, 새 폴더에 지금 `.env` 를 옮기고 `docker compose up -d --build` 하면 돼요 (저장 파일은 Docker 볼륨 `my-pick_mypick-data` 에 그대로 있어요).
+
 ## 설정 (`.env`)
 
 | 이름 | 기본값 | 무엇 |
 |---|---|---|
 | `ADMIN_ID` · `ADMIN_PASSWORD` | `admin` · (없음) | 최고 관리자. 비밀번호가 없으면 관리자 로그인이 꺼져요 |
 | `ORG_NAME` | `My Pick` | 화면 맨 위의 기관 이름 |
-| `CONTACT` | (없음) | 이용약관 · 개인정보 처리방침에 나오는 연락처 |
+| `CONTACT` | (없음) | 이용약관 · 개인정보 처리방침의 문의처 (정식 운영에는 꼭) |
+| `AUDIT_SECRET` | (없음) | 기록을 봉하는 열쇠 (정식 운영에는 꼭). 바꾸거나 잃어버리면 그전 기록이 ‘어긋남’으로 보여요 |
+| `SITE_URL` · `DOMAIN` | (없음) | 실제 주소 · HTTPS 로 띄울 때의 도메인 |
 | `PORT` | `8082` | 바깥 포트 |
 | `PUBLIC_ROOMS` | `1` | 누구나 방 만들기. 끄려면 `0` |
 | `ROOM_KEEP_DAYS` | `7` | 방장이 만든 방을 마지막으로 쓴 뒤 며칠 두는지 |

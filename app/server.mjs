@@ -61,7 +61,7 @@ const OBJECT_MS = num(env.OBJECTION_MINUTES, 10, 0, 1440) * 60_000
 const HOST_SESSION_MS = num(env.HOST_SESSION_HOURS, 24, 1, 720) * 3_600_000
 
 const BOOT = Date.now()
-const VERSION = '0.2.0'
+const VERSION = '1.0.0'
 
 // ── 저장 (SQLite) ────────────────────────────────────────
 mkdirSync(UPLOADS, { recursive: true })

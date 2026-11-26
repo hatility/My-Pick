@@ -1,15 +1,15 @@
-# My Pick (개발판) — 익명으로 함께 고르는 My Pick
-#   1) .env.example 을 .env 로 복사하고 ADMIN_PASSWORD 등을 정해요
+# My Pick — 방 번호 하나로 모여 익명으로 함께 고르는 서비스
+#   1) .env.example 을 .env 로 복사하고 맨 위 ‘꼭 정해야 하는 것’ 을 채워요 (ADMIN_PASSWORD · CONTACT · AUDIT_SECRET …)
 #   2) docker compose up -d --build   →  http://localhost:8082
-#   투표: /  (휴대폰 · 태블릿은 /m 으로 넘어가요)   관리자: /admin   큰 화면: 관리자 화면의 ‘큰 화면 열기’
-# 방 · 안건 · 결과 · 로고는 도커 볼륨(mypick-data)에 남아요.
-# 주의: 볼륨까지 지우는 down 옵션을 쓰면 투표 기록이 모두 사라져요.
-# name: 다른 프로젝트(모두 ‘개발/test’ 폴더)와 컨테이너 · 볼륨 이름이 겹치지 않게 꼭 둬요
+#   참여: /  (휴대폰 · 태블릿은 /m 으로 넘어가요)   관리자: /admin   큰 화면: 관리자 화면의 ‘큰 화면 열기’
+# 방 · 주제 · 결과 · 로고는 도커 볼륨(my-pick_mypick-data)에 남아요.
+# 주의: 볼륨까지 지우는 down -v 를 쓰면 방 · 결과 기록이 모두 사라져요.
+# name: 다른 compose 프로젝트와 컨테이너 · 볼륨 이름이 겹치지 않게 꼭 둬요
 name: my-pick
 services:
   web:
     build: .
-    image: my-pick:0.2.0
+    image: my-pick:1.0.0
     ports:
       - "${PORT:-8082}:8080"
     env_file:
