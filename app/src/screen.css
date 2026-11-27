@@ -325,3 +325,97 @@
 .sc-ring-paused .sc-ring-fill {
   stroke: #ffd166;
 }
+
+/* 큰 화면에서 선택지가 많을 때 (6개부터 두 줄, 13개부터 세 줄): 스크롤할 사람이 없으니 한 화면에 다 들어오게 줄을 나누고 글자 · 막대를 줄여요.
+   예전에는 아래로 넘쳐 선택지가 잘리고, 내려 보면 주제 제목이 가려졌어요. */
+.sc-vote:has(.result[data-many]) {
+  max-width: none;
+  align-self: start;
+}
+.sc-vote:has(.result[data-many]) h1 {
+  font-size: clamp(1.5rem, 2.8vw, 3.2rem);
+}
+.sc-vote:has(.result[data-many]) .sc-dots,
+.sc-vote:has(.result[data-many]) .sc-left {
+  display: none;
+}
+.sc-vote:has(.result[data-many]) .sc-ring {
+  width: clamp(72px, 9vw, 150px);
+  height: clamp(72px, 9vw, 150px);
+}
+/* 동그라미를 줄였으면 그 안의 시간 글자도 같은 비율로 줄여요 (안 줄이면 ‘1:59’ 가 동그라미 밖으로 넘쳐 아래 숫자와 겹쳐요) */
+.sc-vote:has(.result[data-many]) .sc-ring span {
+  font-size: clamp(1.2rem, 2.5vw, 2.6rem);
+  white-space: nowrap;
+}
+.sc-vote:has(.result[data-many]) .sc-ring-long span {
+  font-size: clamp(0.7rem, 1.2vw, 1.3rem);
+  white-space: normal;
+}
+.sc .result[data-many] {
+  margin-top: 2vh;
+  font-size: clamp(0.95rem, 2.5vh, 1.6rem);
+}
+.sc .result[data-many='3'] {
+  font-size: clamp(0.8rem, 1.9vh, 1.2rem);
+}
+.sc .result[data-many] .result-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.6vh 3vw;
+}
+.sc .result[data-many='3'] .result-rows {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9vh 2vw;
+}
+.sc .result[data-many] .res-bar {
+  height: clamp(6px, 1.1vh, 14px);
+}
+.sc .result[data-many] .res-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* 낮은 화면(노트북을 TV 에 그대로 띄울 때)에서 세 줄일 때 조금 더 줄여요 */
+@media (max-height: 800px) {
+  .sc-vote:has(.result[data-many='3']) h1 {
+    font-size: clamp(1.2rem, 2.2vw, 2.2rem);
+  }
+  .sc .result[data-many='3'] {
+    margin-top: 1vh;
+    font-size: clamp(0.75rem, 1.75vh, 1rem);
+  }
+  .sc .result[data-many='3'] .result-rows {
+    gap: 0.5vh 2vw;
+  }
+}
+
+/* 방이 끝난 뒤의 ‘최종 결과’: 큰 화면에서는 주제 한 줄 · 결과 한 줄로 두고, 주제가 많으면(5개부터 두 줄, 11개부터 세 줄) 나눠서 한 화면에 다 보이게 해요.
+   예전에는 긴 제목이 여러 줄로 꺾이고 아래로 넘쳐 뒤쪽 주제가 보이지 않았어요. */
+.sc-vote:has(.final) {
+  max-width: none;
+  align-self: start;
+  width: 100%;
+}
+.sc .final li {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+.sc .final li > span,
+.sc .final strong,
+.sc .final small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sc .final[data-many] ol {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.2vh 1.2vw;
+  font-size: clamp(0.9rem, 2.2vh, 1.4rem);
+}
+.sc .final[data-many='3'] ol {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  font-size: clamp(0.8rem, 1.9vh, 1.15rem);
+}
+.sc .final[data-many] li {
+  padding: 1.1vh 1vw;
+}

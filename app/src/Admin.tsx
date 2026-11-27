@@ -1,6 +1,6 @@
 // 관리자 화면 (/admin): 로그인 → 방 목록 → 방 하나 진행 (주제 열기 · 마감 · 입장 코드 · 큰 화면) · 기관 설정 · 기록
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Ellipsis, Keyboard, X, ImageDown, Pause, Archive, ArrowDown, Eye, FlaskConical, Smartphone, ArrowLeft, ArrowUp, Ban, BellRing, Clock, Copy, GripVertical, SkipForward, Download, Scale, DoorClosed, DoorOpen, LogOut, MonitorUp, Pencil, Play, Plus, Printer, ShieldCheck, ShieldAlert, Square, Trash2 } from 'lucide-react'
+import { CircleStop, Ellipsis, Keyboard, X, ImageDown, Pause, Archive, ArrowDown, Eye, FlaskConical, Smartphone, ArrowLeft, ArrowUp, Ban, BellRing, Clock, Copy, GripVertical, SkipForward, Download, Scale, DoorClosed, DoorOpen, LogOut, MonitorUp, Pencil, Play, Plus, Printer, ShieldCheck, ShieldAlert, Square, Trash2 } from 'lucide-react'
 import { resultCard } from './card'
 import { ask, describe, dur, tell, toast } from './ui'
 import { api, type Item, type Org, type RoomState } from './api'
@@ -310,6 +310,7 @@ export function RoomForm({ defs, initial, fixedMode, host, submitLabel, onSubmit
         <TimeField label="주제 제한 시간" value={f.seconds} onChange={(v) => set('seconds', v)} />
       </div>
 
+      {!fixedMode && f.mode === 'simple' && <p className="tip">방 번호로 입장하는 방은 사람을 구분하지 않아요. 한 사람이 다시 들어와 여러 번 픽할 수도 있어요. 한 사람 한 번이 꼭 지켜져야 하면 아래에서 ‘한 사람에 코드 하나’ 를 골라 주세요.</p>}
       {!fixedMode && !f.password && f.mode === 'simple' && <p className="tip">방 비밀번호가 없으면 방 번호를 아는 사람은 누구나 들어올 수 있어요. 모두 들어온 뒤 ‘입장 마감’을 눌러 주세요.</p>}
 
       <details className="fold" open={!host}>
@@ -509,8 +510,10 @@ export function RoomPage({ id, defs, onBack, onOpen, backLabel = '목록으로' 
                 {s.room.locked ? <DoorOpen size={18} aria-hidden="true" /> : <DoorClosed size={18} aria-hidden="true" />}
                 {s.room.locked ? '입장 다시 열기' : '입장 마감'}
               </button>
-              {a.role !== 'cohost' && (
-                <button data-view="set" className="btn" disabled={busy} onClick={async () => (await ask('방을 끝낼까요?\n열린 주제는 마감되고, 더는 픽할 수 없어요. 결과는 계속 볼 수 있어요.', { ok: '방 끝내기', danger: true })) && act(() => api(`/api/admin/rooms/${id}/close`, 'POST'))}>
+              {/* 주제가 열려 있는 동안에는 숨겨요 (‘지금 마감’ 을 누르려다 잘못 누르지 않게) */}
+              {a.role !== 'cohost' && !s.items.some((i) => i.status === 'open') && (
+                <button className="btn btn-danger" disabled={busy} onClick={async () => (await ask('방을 끝낼까요?\n열린 주제는 마감되고, 더는 픽할 수 없어요. 결과는 계속 볼 수 있어요.', { ok: '방 끝내기', danger: true })) && act(() => api(`/api/admin/rooms/${id}/close`, 'POST'))}>
+                  <CircleStop size={18} aria-hidden="true" />
                   방 끝내기
                 </button>
               )}
@@ -837,9 +840,8 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
           <p className="item-live">
             <strong>{item.voted}명</strong>이 픽했어요 (지금 접속 {state.present}명)
           </p>
-          {item.revealed ? <Result item={item} /> : <p className="tip">결과는 마감 뒤에 공개돼요. 지금은 관리자도 볼 수 없어요.</p>}
           <div className="actions actions-start">
-            <button className="btn btn-primary" disabled={busy} onClick={async () => (await ask('지금 마감할까요?\n아직 픽하지 않은 사람은 픽할 수 없게 돼요.', { ok: '지금 마감' })) && call('/close')}>
+            <button className="btn btn-danger-solid btn-close" disabled={busy} onClick={async () => (await ask('지금 마감할까요?\n아직 픽하지 않은 사람은 픽할 수 없게 돼요.', { ok: '지금 마감' })) && call('/close')}>
               <Square size={18} aria-hidden="true" />
               지금 마감
             </button>
@@ -858,6 +860,7 @@ function ItemCard({ item, state, canOpen, refresh, drag }: { item: Item; state: 
               안 한 사람에게 알리기
             </button>
           </div>
+          {item.revealed ? <Result item={item} /> : <p className="tip">결과는 마감 뒤에 공개돼요. 지금은 관리자도 볼 수 없어요.</p>}
         </>
       )}
 

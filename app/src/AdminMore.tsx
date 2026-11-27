@@ -11,7 +11,7 @@ const size = (b: number) => (b > 1_048_576 ? `${(b / 1_048_576).toFixed(1)}MB` :
 
 // ── 한눈에 보기 ───────────────────────────────────────────
 type Overview = {
-  live: { id: number; title: string; closesAt: number | null; roomId: number; room: string; code: string; voted: number; joined: number; present: number }[]
+  live: { id: number; title: string; closesAt: number | null; paused?: number; roomId: number; room: string; code: string; voted: number; joined: number; present: number }[]
   scheduled: { title: string; openAt: number; roomId: number; room: string }[]
   rooms: { total: number; active: number | null; archived: number | null }
   today: { rooms: number; voters: number; items: number; votes: number }
@@ -64,7 +64,7 @@ export function OverviewTab({ onOpen, onReports }: { onOpen: (id: number) => voi
                 <strong>{x.title}</strong>
                 <span>
                   {x.room} (방 번호 {x.code}), {x.voted} / {x.joined}명 픽, 지금 접속 {x.present}명
-                  {x.closesAt ? `, ${clock(Math.max(0, Math.ceil((x.closesAt - Date.now()) / 1000)))} 남음` : ''}
+                  {x.paused ? ', 잠깐 멈춤' : x.closesAt ? `, ${clock(Math.max(0, Math.ceil((x.closesAt - Date.now()) / 1000)))} 남음` : ''}
                 </span>
               </div>
               <button className="btn btn-small" onClick={() => onOpen(x.roomId)}>
@@ -124,8 +124,9 @@ export function OverviewTab({ onOpen, onReports }: { onOpen: (id: number) => voi
           </div>
           <div>
             <dt>실시간 연결</dt>
-            <dd>
+            <dd className={s.connections >= s.maxConnections * 0.9 ? 'bad' : ''}>
               {s.connections} / {s.maxConnections}
+              {s.connections >= s.maxConnections * 0.9 && ' (거의 찼어요. 더 들어오면 화면이 저절로 바뀌지 않는 사람이 생겨요. .env 의 MAX_CONNECTIONS 를 올려 주세요)'}
             </dd>
           </div>
           <div>

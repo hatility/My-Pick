@@ -47,9 +47,20 @@ export function useLive(load: () => Promise<RoomState>, events: (s: RoomState) =
       const c = JSON.parse(e.data) as { j: number; p: number; v: Record<string, number> }
       setState((s) => s && { ...s, joined: c.j, present: c.p, items: s.items.map((i) => (c.v[i.id] === undefined ? i : { ...i, voted: c.v[i.id] })) })
     }
-    es.onopen = () => setOnline(true)
-    es.onerror = () => setOnline(false)
-    const t = setInterval(refresh, 15_000)
+    // 실시간 연결이 안 될 때(자리가 다 찼거나 막힌 망)는 4초마다 직접 읽어 화면이 멈추지 않게 해요. 연결돼 있을 때는 16초마다 한 번만 확인해요.
+    let live = true
+    let n = 0
+    es.onopen = () => {
+      live = true
+      setOnline(true)
+    }
+    es.onerror = () => {
+      live = false
+      setOnline(false)
+    }
+    const t = setInterval(() => {
+      if (!live || ++n % 4 === 0) refresh()
+    }, 4000)
     return () => {
       es.close()
       clearInterval(t)
@@ -275,32 +286,98 @@ const FOOT: [string, string][] = [
   ['/terms', '이용약관'],
   ['/privacy', '개인정보 처리방침'],
 ]
-export function HomeFoot({ org }: { org: Org | null }) {
-  return (
-    <footer className="foot">
-      <nav aria-label="더 알아보기">
-        <ul className="foot-links">
-          {FOOT.map(([href, name]) => (
-            <li key={href}>
-              {/* 개인정보 처리방침은 눈에 잘 띄게 (개인정보 보호법이 바라는 대로) */}
-              <a href={href} className={href === '/privacy' ? 'foot-strong' : undefined}>
-                {name}
+/** 맨 아래 칸 (PC · 안내 페이지): 흰 카드 하나에 My Pick 소개 · ‘하틸리티가 만든 상자’ 칩 · 바로가기. 하틸리티 메인 사이트 · 그려봄과 같은 짜임이에요.
+    휴대폰에서는 링크만 몇 줄로 줄여요 (styles.css). compact 는 휴대폰 참여 화면용: 예전처럼 작은 링크 한 줄만 */
+const FOOT_COLS: [string, [string, string, string][]][] = [
+  // ‘방 만들기’ 는 첫 화면의 띠와 겹쳐서 넣지 않아요
+  ['함께하기', [['/', '방 들어가기', 'M5 12h14M13 6l6 6-6 6'], ['/host', '내가 만든 방 진행하기', 'M4 5h16v11H4zM9 20h6M12 16v4'], ['/verify', '결과 확인', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM8.5 12l2.5 2.5 4.5-5']]],
+  ['알아보기', [['/about', '소개', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.5'], ['/guide', '가이드', 'M4 4h12l4 4v12H4zM8 12h8M8 16h5'], ['/feedback', '오류 제보', 'M3 6h18v12H3zM3 7l9 6 9-6']]],
+]
+export function HomeFoot({ org, compact = false }: { org: Org | null; compact?: boolean }) {
+  if (compact)
+    return (
+      <footer className="foot">
+        <nav aria-label="더 알아보기">
+          <ul className="foot-links">
+            {FOOT.map(([href, name]) => (
+              <li key={href}>
+                {/* 개인정보 처리방침은 눈에 잘 띄게 (개인정보 보호법이 바라는 대로) */}
+                <a href={href} className={href === '/privacy' ? 'foot-strong' : undefined}>
+                  {name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <p className="foot-note">
+          My Pick · 누구나 고쳐 쓸 수 있는 자유 소프트웨어 (AGPL-3.0)
+          {org?.source && (
+            <>
+              {' '}
+              <a href={org.source} rel="noopener">
+                소스 코드
               </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <p className="foot-note">
-        My Pick · 누구나 고쳐 쓸 수 있는 자유 소프트웨어 (AGPL-3.0)
-        {org?.source && (
-          <>
-            {' '}
-            <a href={org.source} rel="noopener">
-              소스 코드
+            </>
+          )}
+        </p>
+      </footer>
+    )
+  return (
+    <footer className="foot-big">
+      <div className="foot-card">
+        <div className="foot-grid">
+          <div className="foot-brand">
+            <a className="foot-mark" href="/" aria-label="My Pick 처음으로">
+              <Stamp />
+              <b>My Pick</b>
             </a>
-          </>
-        )}
-      </p>
+            <p>방 번호 하나로 모여 함께 고르고, 결과를 같이 봐요. 누가 무엇을 골랐는지는 어디에도 남지 않아요.</p>
+            <a className="foot-made" href="https://github.com/hatility" rel="noopener">
+              <img src="/hatility.png" alt="" width={32} height={32} loading="lazy" />
+              <span>
+                <b>하틸리티가 만든 상자</b>
+                <small>하남시청소년수련관 Team HATILITY</small>
+              </span>
+            </a>
+          </div>
+          {FOOT_COLS.map(([title, links]) => (
+            <nav key={title} aria-label={title}>
+              <h2>{title}</h2>
+              <ul>
+                {links.map(([href, name, d]) => (
+                  <li key={href}>
+                    <a href={href}>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d={d} />
+                      </svg>
+                      {name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
+        </div>
+        <p className="foot-copy">
+          <span>
+            © 2026 hatility · 만든 사람 이명균 · 자유 소프트웨어 (AGPL-3.0)
+            {org?.source && (
+              <>
+                {' '}
+                <a href={org.source} rel="noopener">
+                  소스 코드
+                </a>
+              </>
+            )}
+          </span>
+          <span className="foot-small">
+            <a href="/terms">이용약관</a>
+            <a href="/privacy" className="foot-strong">
+              개인정보 처리방침
+            </a>
+          </span>
+        </p>
+      </div>
     </footer>
   )
 }
@@ -310,7 +387,7 @@ function useOpenAlert(id: number | undefined, title: string | undefined) {
   const last = useRef<number | undefined | null>(null)
   useEffect(() => {
     if (last.current !== null && id && id !== last.current) {
-      navigator.vibrate?.([200, 100, 200])
+      if (navigator.userActivation?.hasBeenActive ?? true) navigator.vibrate?.([200, 100, 200])
       try {
         const ctx = new AudioContext()
         const osc = ctx.createOscillator()
@@ -340,7 +417,7 @@ function useNudge(item: Item | undefined, skew: number) {
   useEffect(() => {
     if (!at || Date.now() + skew - at > 30_000) return setOn(false)
     setOn(true)
-    navigator.vibrate?.([120, 80, 120])
+    if (navigator.userActivation?.hasBeenActive ?? true) navigator.vibrate?.([120, 80, 120])
     const t = setTimeout(() => setOn(false), 30_000)
     return () => clearTimeout(t)
   }, [at])
@@ -630,7 +707,7 @@ export function Result({ item }: { item: Item }) {
   }, [item.id, item.proof])
   const first = seen?.id === item.id ? seen.code : null
   return (
-    <div className="result">
+    <div className="result" data-many={item.options.length > 12 ? 3 : item.options.length > 5 ? 2 : undefined}>
       {item.outcome && (
         <p className={`verdict verdict-${item.outcome}`}>
           <strong>{item.outcome === 'pass' ? '통과' : '통과 못 함'}</strong>
@@ -924,7 +1001,7 @@ export function Final({ items }: { items: Item[] }) {
   const done = items.filter((i) => i.status === 'closed' && !i.practice)
   if (!done.length) return null
   return (
-    <section className="final" aria-labelledby="final-title">
+    <section className="final" aria-labelledby="final-title" data-many={done.length > 10 ? 3 : done.length > 4 ? 2 : undefined}>
       <h2 id="final-title">최종 결과</h2>
       <ol>
         {done.map((it) => {

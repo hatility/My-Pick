@@ -406,6 +406,7 @@ try {
   assert.equal((await admin.post(`/api/admin/items/${q1}/runoff`)).status, 409) // 동점이 아니면 다시 고르기 없음
   await runItem(q3, [0, 1, null])
   assert.equal((await admin.post(`/api/admin/items/${q3}/runoff`)).status, 200)
+  assert.equal((await admin.post(`/api/admin/items/${q3}/runoff`)).status, 409) // 두 번 누르거나 여럿이 눌러도 하나만
   let list = (await admin.get(`/api/admin/rooms/${openRoom.id}`)).data.items
   const final = list.at(-1)
   assert.deepEqual([final.title, final.status, final.options.map((o) => o.label)], ['대표 뽑기 (동점 가리기)', 'draft', ['가', '나']])
@@ -657,7 +658,7 @@ try {
 
   // ── 한눈에 보기 · 통계 · 기록 찾기 · 내 비밀번호 · 백업 ──
   const over = (await admin.get('/api/admin/overview')).data
-  assert.deepEqual([over.server.version, over.server.auditIntact, over.live.length], ['1.0.0', false, 0]) // 앞에서 기록을 일부러 고쳐 둔 상태
+  assert.deepEqual([over.server.version, over.server.auditIntact, over.live.length], ['1.0.1', false, 0]) // 앞에서 기록을 일부러 고쳐 둔 상태
   assert.ok(over.server.dbBytes > 0 && over.rooms.total > 3 && over.today.rooms > 3)
   const stat = (await admin.get('/api/admin/stats')).data.days.at(-1)
   assert.ok(stat.votes > 5 && stat.voters > 5 && stat.items > 5)

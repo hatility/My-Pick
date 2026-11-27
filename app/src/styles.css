@@ -188,6 +188,7 @@ a {
   color: inherit;
   text-decoration: none;
   border-radius: var(--r-sm);
+  min-width: 0; /* 기관 이름이 길면 말줄임 (좁은 휴대폰에서 옆으로 넘치지 않게) */
 }
 
 /* ── 버튼 · 입력 ── */
@@ -2616,4 +2617,225 @@ details > summary:focus-visible {
 .fb-done .actions {
   justify-content: center;
   margin-top: 10px;
+}
+
+/* ── 맨 아래 칸 (PC · 안내 페이지): 흰 카드 하나에 My Pick · 바로가기 · 만든 곳. 하틸리티 메인 사이트와 같은 짜임, 색 · 둥글기는 My Pick 것 ── */
+.foot-big {
+  width: 100%;
+  max-width: 1180px;
+  margin: 40px auto 0;
+  padding: 0 clamp(18px, 4vw, 40px) calc(28px + env(safe-area-inset-bottom));
+  color: var(--mute);
+  font-size: 0.9rem;
+}
+.foot-card {
+  padding: clamp(22px, 3.2vw, 34px) clamp(20px, 4vw, 40px) clamp(16px, 2.4vw, 22px);
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+}
+.foot-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) repeat(2, minmax(0, 1fr));
+  gap: 28px 24px;
+}
+.foot-big .foot-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.foot-mark .stamp {
+  width: 26px;
+  height: 26px;
+}
+.foot-mark b {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.foot-big p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.foot-brand p {
+  max-width: 24em;
+}
+.foot-big h2 {
+  margin: 0 0 6px;
+  padding-top: 9px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+.foot-big ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.foot-big a {
+  color: var(--mute);
+  text-decoration: none;
+  transition: color var(--dur-2) var(--ease);
+}
+.foot-big ul a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  font-weight: 500;
+}
+.foot-big ul svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
+}
+.foot-big a:hover {
+  color: var(--ink);
+}
+/* 만든 곳: 그려봄과 같은 점선 칩 (마스코트 + 하틸리티가 만든 상자) */
+.foot-made {
+  display: inline-grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 8px 14px 8px 10px;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--radius);
+  transition:
+    border-color var(--dur-2) var(--ease),
+    background-color var(--dur-2) var(--ease);
+}
+.foot-made:hover {
+  border-style: solid;
+  border-color: var(--sky-ink);
+  background: var(--sky);
+}
+.foot-made img {
+  display: block;
+  border-radius: var(--r-sm);
+  background: #e8ecf8;
+}
+.foot-made b {
+  display: block;
+  font-size: 0.84rem;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.foot-made small {
+  display: block;
+  font-size: 0.75rem;
+}
+.foot-copy a {
+  display: inline;
+  padding: 11px 2px;
+}
+.foot-big .foot-copy {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 20px;
+  margin-top: clamp(16px, 2.4vw, 24px);
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.78rem;
+}
+.foot-copy a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.foot-small a + a::before {
+  content: '·';
+  margin: 0 8px;
+  font-weight: 400;
+  color: var(--mute);
+}
+.foot-big .foot-strong {
+  font-weight: 750;
+  color: var(--ink);
+}
+.foot-big a:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+@media (max-width: 900px) {
+  .foot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 16px;
+  }
+  .foot-brand {
+    grid-column: 1 / -1;
+  }
+  .foot-big .foot-copy {
+    justify-content: center;
+    text-align: center;
+  }
+}
+/* 휴대폰: 너무 길지 않게. 소개 글 · 묶음 제목 · 선 그림은 숨기고 링크만 몇 줄로 */
+@media (max-width: 700px) {
+  .foot-big {
+    margin-top: 24px;
+    padding-inline: 18px;
+  }
+  .foot-card {
+    padding: 16px 18px 12px;
+  }
+  .foot-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 18px;
+  }
+  .foot-brand {
+    flex: 0 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    margin-bottom: 8px;
+  }
+  .foot-brand p,
+  .foot-big h2,
+  .foot-big ul svg {
+    display: none;
+  }
+  .foot-big .foot-made {
+    margin-top: 0;
+  }
+  .foot-grid nav,
+  .foot-grid ul {
+    display: contents;
+  }
+  .foot-big ul a {
+    min-width: 44px;
+  }
+  .foot-big .foot-copy {
+    margin-top: 8px;
+    padding-top: 10px;
+  }
+}
+@media print {
+  .foot-big {
+    display: none;
+  }
+}
+
+/* 지금 마감: 진행 중 가장 중요한 버튼이라 붉게, 조금 크게 */
+.btn-close {
+  min-height: 52px;
+  padding-inline: 22px;
+  font-size: 1.05rem;
 }

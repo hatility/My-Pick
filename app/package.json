@@ -1,6 +1,6 @@
 {
   "name": "my-pick",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "My Pick — 익명으로 함께 고르는 My Pick",
   "private": true,
   "type": "module",
@@ -15,7 +15,12 @@
     "e2e": "node --env-file-if-exists=.env scripts/e2e.mjs",
     "load": "node --env-file-if-exists=.env scripts/load.mjs",
     "samples": "node --env-file-if-exists=.env scripts/samples.mjs",
-    "audit": "node --env-file-if-exists=.env scripts/audit.mjs"
+    "audit": "node --env-file-if-exists=.env scripts/audit.mjs",
+    "drill": "node --env-file-if-exists=.env scripts/drill-100.mjs",
+    "drill:1000": "node --env-file-if-exists=.env scripts/drill-1000.mjs",
+    "drill:2000": "node --env-file-if-exists=.env scripts/drill-2000.mjs",
+    "drill:attack": "node --env-file-if-exists=.env scripts/drill-attack.mjs",
+    "drill:screen": "node --env-file-if-exists=.env scripts/drill-screen.mjs"
   },
   "dependencies": {
     "lucide-react": "0.468.0",

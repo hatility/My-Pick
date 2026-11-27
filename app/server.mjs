@@ -45,7 +45,7 @@ const ADMIN_SESSION_MS = num(env.ADMIN_SESSION_HOURS, 12, 1, 168) * 3_600_000
 // 참여자 세션은 기본 7일: 며칠에 걸친 픽에서도 같은 사람으로 남아야 한 표만 낼 수 있어요
 const VOTER_SESSION_MS = num(env.VOTER_SESSION_HOURS, 168, 1, 720) * 3_600_000
 const MAX_LOGO = num(env.MAX_LOGO_MB, 2, 0.1, 10) * 1024 * 1024
-const MAX_STREAMS = num(env.MAX_CONNECTIONS, 2000, 10, 50_000)
+const MAX_STREAMS = num(env.MAX_CONNECTIONS, 5000, 10, 50_000)
 // 누구나 방 만들기 (방장). 끄려면 PUBLIC_ROOMS=0
 const PUBLIC_ROOMS = env.PUBLIC_ROOMS !== '0'
 const KEEP_DAYS = Math.round(num(env.ROOM_KEEP_DAYS, 7, 1, 365))
@@ -61,7 +61,7 @@ const OBJECT_MS = num(env.OBJECTION_MINUTES, 10, 0, 1440) * 60_000
 const HOST_SESSION_MS = num(env.HOST_SESSION_HOURS, 24, 1, 720) * 3_600_000
 
 const BOOT = Date.now()
-const VERSION = '1.0.0'
+const VERSION = '1.0.1'
 
 // ── 저장 (SQLite) ────────────────────────────────────────
 mkdirSync(UPLOADS, { recursive: true })
@@ -183,6 +183,14 @@ const BACKUP_NAME = /^mypick-\d{4}-\d{2}-\d{2}(-\d{6})?\.db$/
 const backupFiles = () => readdirSync(BACKUPS).filter((f) => BACKUP_NAME.test(f)).sort()
 function backup(now = false) {
   if (!BACKUP_KEEP && !now) return null
+  // 날마다 뜨는 백업은 픽이 열려 있는 동안에는 미뤄요 (마감 전 숫자가 백업에 담기지 않게. 한 시간 뒤에 다시 봐요)
+  if (!now) {
+    try {
+      if (db.prepare("SELECT 1 x FROM items i JOIN rooms r ON r.id=i.room_id WHERE i.status='open' AND i.practice=0 AND r.live=0 AND r.rehearsal IS NULL").get()) return null
+    } catch {
+      /* 처음 켤 때 표가 아직 없으면 그냥 떠요 */
+    }
+  }
   const stamp = new Date().toISOString()
   const name = `mypick-${stamp.slice(0, 10)}${now ? '-' + stamp.slice(11, 19).replaceAll(':', '') : ''}.db`
   const file = join(BACKUPS, name)
@@ -348,7 +356,7 @@ async function body(req) {
 // 받은 값 다듬기 (모양이 다르면 400)
 const text = (v, name, max, min = 1) => {
   if (typeof v !== 'string') throw new Bad(400, `${name}: 글자로 적어 주세요`)
-  const s = v.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+  const s = v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/[\u202a-\u202e\u2066-\u2069]/g, '').trim() // 글자 방향을 뒤집는 문자는 빼요 (제목이 거꾸로 보이게 하는 눈속임)
   if (s.length < min) throw new Bad(400, `${name}: ${min === 1 ? '비어 있어요' : `${min}자 이상 적어 주세요`}`)
   if (s.length > max) throw new Bad(400, `${name}: ${max}자까지 적을 수 있어요`)
   return s
@@ -372,8 +380,11 @@ function failed(key, after, ms) {
     for (const [k, f] of fails) if (f.until <= now && fails.size >= 5_000) fails.delete(k)
     for (const k of fails.keys()) if (fails.size >= 10_000) fails.delete(k) // 그래도 가득이면 오래된 것부터
   }
-  const n = (fails.get(key)?.n ?? 0) + 1
-  fails.set(key, n >= after ? { n: 0, until: Date.now() + ms } : { n, until: 0 })
+  const now = Date.now()
+  const prev = fails.get(key)
+  const fresh = prev && now - (prev.at ?? 0) < ms // 잠그는 시간만큼 지난 실수는 잊어요 (하루 종일 쌓여서 잠기지 않게)
+  const n = (fresh ? prev.n : 0) + 1
+  fails.set(key, n >= after ? { n: 0, until: now + ms, at: now } : { n, until: 0, at: fresh ? prev.at : now })
 }
 
 // ── 비밀번호 ──────────────────────────────────────────────
@@ -391,6 +402,34 @@ async function checkPass(p, stored) {
 }
 
 // ── 관리자 로그인 ─────────────────────────────────────────
+// ── 기기 표시 (mp_dev) ──
+// 학교처럼 모두 같은 접속 주소를 쓰는 곳에서, 한 사람이 틀린 횟수 때문에 모두가 잠기지 않게 기기마다 따로 세요.
+// 값은 아무 숫자 + 만든 때 + 서명뿐이라 누구인지 담기지 않고, 서버에 저장하지도 않아요. 만든 지 몇 초 지난 것만 쳐요(방금 찍어 낸 것으로 잠금을 피하지 못하게).
+// ponytail: 한 주소에서 한 시간에 20000개까지만 내줘요 (큰 학교 한 곳이 하루에 여러 번 써도 남게). 그 이상 찍어 내면 그 주소의 새 기기는 주소 단위로 세요.
+const DEV_AGE = 4000
+const devSign = (id, ts) => createHmac('sha256', setting('salt')).update(`dev|${id}|${ts}`).digest('hex').slice(0, 32)
+const devCookie = (req) => /(?:^|;\s*)mp_dev=([a-f0-9]{24})\.([a-z0-9]{6,12})\.([a-f0-9]{32})(?:;|$)/.exec(req.headers.cookie || '')
+function devOf(req) {
+  const m = devCookie(req)
+  if (!m) return null
+  const ts = parseInt(m[2], 36)
+  return same(devSign(m[1], ts), m[3]) && Date.now() - ts >= DEV_AGE ? m[1] : null
+}
+function mintDev(req, ip) {
+  if (devCookie(req) || overHour(`dev|${ip}`, 20_000)) return undefined
+  bumpHour(`dev|${ip}`)
+  const id = randomBytes(12).toString('hex')
+  const ts = Date.now()
+  return { 'Set-Cookie': `mp_dev=${id}.${ts.toString(36)}.${devSign(id, ts)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${isHttps(req) ? '; Secure' : ''}` }
+}
+// 관리자가 한 번 제대로 로그인한 기기: 같은 주소의 다른 사람이 비밀번호를 일부러 틀려도 이 기기의 로그인은 잠기지 않아요
+// 로그인 유지: 서버가 꺼질 때 적어 두었다가 다시 켜지면 이어 가요 (진행 중에 다시 켜져도 관리자 · 방장이 다시 로그인하지 않게)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trusted (name TEXT NOT NULL, dev TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY(name, dev));
+  CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, kind TEXT NOT NULL, data TEXT NOT NULL, until INTEGER NOT NULL);
+`)
+const PASS_KEY = randomBytes(32)
+const passOk = new Map() // 방 → { hash, mac }
 const adminSessions = new Map() // 토큰 해시 → { until, name, top }   top: .env 의 최고 관리자
 function adminOf(req) {
   const t = cookieOf(req, 'mp_admin')
@@ -409,6 +448,16 @@ function hostOf(req) {
   const h = t && hostSessions.get(sha(t))
   return h && h.until > Date.now() ? h : null
 }
+for (const s of all('SELECT * FROM sessions WHERE until > ?', Date.now())) (s.kind === 'admin' ? adminSessions : hostSessions).set(s.hash, JSON.parse(s.data))
+run('DELETE FROM sessions')
+process.on('exit', () => {
+  try {
+    for (const [kind, map] of [['admin', adminSessions], ['host', hostSessions]]) for (const [hash, v] of map) if (v.until > Date.now()) run('INSERT OR REPLACE INTO sessions(hash, kind, data, until) VALUES(?,?,?,?)', hash, kind, JSON.stringify(v), v.until)
+  } catch {
+    /* 꺼지는 중이라 못 적으면 다시 로그인하면 돼요 */
+  }
+})
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => process.exit(0))
 function hostCookie(req, roomId, role = 'host') {
   const token = randomBytes(32).toString('hex')
   hostSessions.set(sha(token), { roomId, until: Date.now() + HOST_SESSION_MS, role })
@@ -545,6 +594,7 @@ function openItem(item, room, how) {
   ping(room.id)
 }
 
+const OPEN_AT_BOOT = new Set(all("SELECT id FROM items WHERE status='open'").map((r) => r.id))
 // 1초마다: 예약한 주제를 열고, 시간이 다 됐거나 자리에 있는 사람이 모두 픽했으면 마감해요.
 setInterval(() => {
   const now = Date.now()
@@ -574,6 +624,7 @@ setInterval(() => {
       continue
     }
     const room = roomById(item.room_id)
+    if (now - BOOT < 60_000 && OPEN_AT_BOOT.has(item.id)) continue // 켜질 때 이미 열려 있던 주제: 아직 다시 붙지 못한 사람을 ‘자리에 없음’ 으로 보지 않게 1분 기다려요
     if (!room.close_all || item.close_at) continue // 마감 때를 정해 둔 주제는 그때까지 열어 둬요 (사람들이 드나들며 픽해요)
     const voters = all('SELECT v.id, p.voter_id AS done FROM voters v LEFT JOIN participation p ON p.voter_id=v.id AND p.item_id=? WHERE v.room_id=?', item.id, room.id)
     const done = voters.filter((v) => v.done).length
@@ -591,6 +642,7 @@ function deleteRoom(room, why) {
   })
   presence.delete(room.id)
   for (const [t, h] of hostSessions) if (h.roomId === room.id) hostSessions.delete(t)
+  run('DELETE FROM trusted WHERE name=?', `room:${room.id}`)
   run('UPDATE reports SET room_id=NULL WHERE room_id=?', room.id)
   if (room.logo) rmSync(join(UPLOADS, room.logo.slice('/uploads/'.length)), { force: true })
   for (const s of streams.get(room.id) ?? []) s.end()
@@ -612,7 +664,7 @@ setInterval(() => {
   for (const [t, a] of adminSessions) if (a.until < now) adminSessions.delete(t)
   for (const [t, h] of hostSessions) if (h.until < now) hostSessions.delete(t)
   for (const [k, c] of created) if (c.until < now) created.delete(k)
-  for (const [k, f] of fails) if (f.until < now && f.n === 0) fails.delete(k)
+  for (const [k, f] of fails) if (f.until < now && (f.n === 0 || now - (f.at ?? 0) > 3_600_000)) fails.delete(k)
 }, 600_000).unref()
 
 /** 통과 기준이 있는 주제: 첫 번째 선택지가 픽한 사람(건너뛴 사람 포함)의 절반 넘게 · 3분의 2 이상을 받았는지 */
@@ -860,17 +912,19 @@ async function api(req, res, url) {
   const path = url.pathname
   const m = req.method
   const ip = clientIp(req)
+  const dev = devOf(req)
+  const who = dev ? `d:${dev}` : ip // 틀린 횟수를 세는 단위
   if (m !== 'GET' && !sameSite(req)) throw new Bad(403, '다른 사이트에서 온 요청은 받지 않아요')
   const ok = (obj = { ok: true }, headers) => json(res, 200, obj, headers)
 
-  if (path === '/api/org' && m === 'GET') return ok(org())
+  if (path === '/api/org' && m === 'GET') return ok(org(), mintDev(req, ip))
 
   // ── 참여자 ──
   // 방 번호를 넣으면 그 방에 들어갈 때 무엇이 필요한지만 알려 줘요 (필요 없는 칸은 화면에 안 나오게).
   // 번호를 마구 찍어 방을 찾는 것은 틀린 횟수를 세어 막아요.
   // 결과 확인: 마감 때 받은 코드를 넣으면, 지금 저장된 결과가 그때와 같은지 알려 줘요 (누구나)
   if (path === '/api/verify' && m === 'GET') {
-    const wide = `join|${ip}`
+    const wide = `join|${who}`
     guard(wide)
     const typed = cleanCode(url.searchParams.get('code'))
     const code = `${typed.slice(0, 4)}-${typed.slice(4, 8)}-${typed.slice(8, 12)}`
@@ -896,7 +950,7 @@ async function api(req, res, url) {
   }
 
   if (path === '/api/room' && m === 'GET') {
-    const wide = `join|${ip}`
+    const wide = `join|${who}`
     guard(wide)
     const room = roomByCode(url.searchParams.get('code'))
     if (!room) {
@@ -909,8 +963,8 @@ async function api(req, res, url) {
   if (path === '/api/join' && m === 'POST') {
     const b = await body(req)
     const code = String(b.room ?? '').replace(/\D/g, '').slice(0, 6)
-    const key = `join|${ip}|${code}`
-    const wide = `join|${ip}` // 방 번호를 바꿔 가며 찍어 보는 것도 막아요 (같은 주소에서 틀린 횟수를 통틀어 세요)
+    const key = `join|${who}|${code}`
+    const wide = `join|${who}` // 방 번호를 바꿔 가며 찍어 보는 것도 막아요 (같은 주소에서 틀린 횟수를 통틀어 세요)
     guard(key)
     guard(wide)
     const room = roomByCode(code)
@@ -921,7 +975,17 @@ async function api(req, res, url) {
       return new Bad(401, '방 번호 · 비밀번호 · 입장 코드를 다시 확인해 주세요')
     }
     if (!room) throw wrong()
-    if (room.pass_hash && !(typeof b.password === 'string' && b.password.length <= 100 && (await checkPass(b.password, room.pass_hash)))) throw wrong()
+    if (room.pass_hash) {
+      if (!(typeof b.password === 'string' && b.password.length <= 100)) throw wrong()
+      // 무거운 계산은 처음 맞힌 사람 한 번만: 그 뒤로는 이번에 켜진 동안만 쓰는 열쇠로 봉한 값과 견줘요 (틀린 비밀번호는 늘 무거운 계산)
+      const quick = passOk.get(room.id)
+      const mac = createHmac('sha256', PASS_KEY).update(b.password).digest('hex')
+      if (!(quick?.hash === room.pass_hash && same(quick.mac, mac))) {
+        if (!(await checkPass(b.password, room.pass_hash))) throw wrong()
+        if (passOk.size > 5000) passOk.clear()
+        passOk.set(room.id, { hash: room.pass_hash, mac })
+      }
+    }
 
     const mine = voterOf(req)
     if (mine?.room_id === room.id && room.mode === 'simple') return ok()
@@ -1108,9 +1172,10 @@ async function api(req, res, url) {
 
   if (path === '/api/admin/login' && m === 'POST') {
     if (!ENABLED) throw new Bad(503, '관리자 비밀번호가 정해지지 않았어요. .env 의 ADMIN_PASSWORD 를 8자 이상으로 넣고 다시 띄워 주세요.')
-    const key = `admin|${ip}`
-    guard(key)
     const b = await body(req)
+    const trusted = !!dev && typeof b.id === 'string' && !!get('SELECT 1 x FROM trusted WHERE name=? AND dev=?', b.id.slice(0, 40), dev)
+    const key = trusted ? `admin|d:${dev}` : `admin|${ip}`
+    guard(key)
     // 아이디 · 비밀번호를 둘 다 끝까지 견줘요 (어느 쪽이 틀렸는지 시간으로 새지 않게)
     const typed = typeof b.id === 'string' && typeof b.password === 'string' && b.id.length <= 40 && b.password.length <= 100
     const top = typed && [same(b.id, ADMIN_ID), same(b.password, ADMIN_PASSWORD)].every(Boolean)
@@ -1123,6 +1188,7 @@ async function api(req, res, url) {
       throw new Bad(401, '아이디나 비밀번호가 달라요')
     }
     fails.delete(key)
+    if (dev) run('INSERT OR REPLACE INTO trusted(name, dev, at) VALUES(?,?,?)', top ? ADMIN_ID : extra.name, dev, Date.now())
     const token = randomBytes(32).toString('hex')
     adminSessions.set(sha(token), { until: Date.now() + ADMIN_SESSION_MS, name: top ? ADMIN_ID : extra.name, top })
     audit('관리자 로그인', { 누가: top ? ADMIN_ID : extra.name, 주소: ip })
@@ -1151,15 +1217,18 @@ async function api(req, res, url) {
     if (get("SELECT COUNT(*) n FROM rooms WHERE owner='host'").n >= MAX_PUBLIC_ROOMS) throw new Bad(503, '지금은 방이 가득 찼어요. 나중에 다시 해 주세요.')
     const id = actor.run('방장', () => createRoom(b0, 'host', creator))
     bumpHour(ip)
+    if (dev) run('INSERT OR REPLACE INTO trusted(name, dev, at) VALUES(?,?,?)', `room:${id}`, dev, Date.now())
     return ok({ id }, hostCookie(req, id))
   }
 
   if (path === '/api/host/login' && m === 'POST') {
     const b = await body(req)
     const code = String(b.room ?? '').replace(/\D/g, '').slice(0, 6)
-    const key = `host|${ip}|${code}`
-    guard(key)
     const room = roomByCode(code)
+    // 이 방에 한 번 제대로 들어왔던 기기는 따로 세요 (같은 곳의 다른 사람이 일부러 틀려도 진행자가 잠기지 않게)
+    const known = !!dev && !!room && !!get('SELECT 1 x FROM trusted WHERE name=? AND dev=?', `room:${room.id}`, dev)
+    const key = known ? `host|d:${dev}|${code}` : `host|${ip}|${code}`
+    guard(key)
     // 방장 비밀번호면 방장, 공동 진행자 비밀번호면 공동 진행자로 들어가요 (둘 다 끝까지 견줘요)
     const pw = typeof b.hostPassword === 'string' && b.hostPassword.length <= 100 ? b.hostPassword : null
     const asHost = !!pw && (await checkPass(pw, room?.host_hash ?? DUMMY_HASH)) && !!room?.host_hash
@@ -1169,6 +1238,7 @@ async function api(req, res, url) {
       throw new Bad(401, '방 번호나 비밀번호를 다시 확인해 주세요')
     }
     fails.delete(key)
+    if (dev) run('INSERT OR REPLACE INTO trusted(name, dev, at) VALUES(?,?,?)', `room:${room.id}`, dev, Date.now())
     return ok({ id: room.id, role: asHost ? 'host' : 'cohost' }, hostCookie(req, room.id, asHost ? 'host' : 'cohost'))
   }
 
@@ -1223,6 +1293,7 @@ async function api(req, res, url) {
     const a = get('SELECT * FROM admins WHERE id=?', Number(r0[1]))
     if (!a) throw new Bad(404, '없는 관리자예요')
     run('DELETE FROM admins WHERE id=?', a.id)
+    run('DELETE FROM trusted WHERE name=?', a.name)
     for (const [t, x] of adminSessions) if (x.name === a.name && !x.top) adminSessions.delete(t)
     audit('관리자 뺌', { 아이디: a.name })
     return ok()
@@ -1234,7 +1305,7 @@ async function api(req, res, url) {
     const now = Date.now()
     const files = backupFiles()
     return ok({
-      live: all("SELECT i.id, i.title, i.closes_at AS closesAt, r.id AS roomId, r.title AS room, r.code FROM items i JOIN rooms r ON r.id=i.room_id WHERE i.status='open' ORDER BY i.opened_at").map((x) => {
+      live: all("SELECT i.id, i.title, i.closes_at AS closesAt, i.paused, r.id AS roomId, r.title AS room, r.code FROM items i JOIN rooms r ON r.id=i.room_id WHERE i.status='open' ORDER BY i.opened_at").map((x) => {
         const room = roomById(x.roomId)
         return { ...x, voted: votedCount(x.id), joined: joinedCount(x.roomId), present: all('SELECT id FROM voters WHERE room_id=?', x.roomId).filter((v) => isPresent(room, v.id, now)).length }
       }),
@@ -1267,12 +1338,17 @@ async function api(req, res, url) {
   }
 
   // ── 백업: 지금 만들기 · 내려받기 · 되돌리기 (저장 파일 전체라 최고 관리자만) ──
+  // 저장 파일에는 마감 전 숫자도 들어 있어요. 픽이 열려 있는 동안 백업을 받아 가면 결과를 미리 볼 수 있으니 막아요 (연습 · 리허설 · 실시간 공개 방은 빼고)
+  const midPick = () => {
+    if (get("SELECT 1 x FROM items i JOIN rooms r ON r.id=i.room_id WHERE i.status='open' AND i.practice=0 AND r.live=0 AND r.rehearsal IS NULL")) throw new Bad(409, '픽이 열려 있는 동안에는 백업을 만들거나 내려받을 수 없어요 (마감 전 숫자가 들어 있어요). 마감한 뒤에 해 주세요.')
+  }
   if (path === '/api/admin/backups' && m === 'GET') {
     adminOnly()
     return ok({ keepDays: BACKUP_KEEP, files: backupFiles().reverse().map((name) => ({ name, bytes: statSync(join(BACKUPS, name)).size, at: statSync(join(BACKUPS, name)).mtimeMs })) })
   }
   if (path === '/api/admin/backups' && m === 'POST') {
     topOnly()
+    midPick()
     const name = backup(true)
     audit('백업 만듦', { 파일: name })
     return ok({ name })
@@ -1282,6 +1358,7 @@ async function api(req, res, url) {
     const file = join(BACKUPS, r0[1])
     if (!BACKUP_NAME.test(r0[1]) || !existsSync(file)) throw new Bad(404, '없는 백업이에요')
     if (!r0[2] && m === 'GET') {
+      midPick()
       audit('백업 내려받음', { 파일: r0[1] })
       res.writeHead(200, { ...SECURITY, 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'Content-Length': statSync(file).size, 'Content-Disposition': `attachment; filename="${r0[1]}"` })
       return createReadStream(file).pipe(res)
@@ -1723,6 +1800,8 @@ async function api(req, res, url) {
       const top = Math.max(0, ...opts.map((o) => o.votes))
       const tied = opts.filter((o) => o.votes === top)
       if (top === 0 || tied.length < 2) throw new Bad(409, '동점이 아니에요')
+      // 여럿이 동시에 누르거나 두 번 눌러도 하나만 (아직 마감하지 않은 동점 가리기가 있으면 그것을 써요)
+      if (get("SELECT 1 x FROM items WHERE room_id=? AND title=? AND status!='closed'", room.id, `${item.title} (동점 가리기)`.slice(0, 100))) throw new Bad(409, '동점 가리기를 이미 만들었어요. 주제 목록에서 열어 주세요.')
       addItem(room.id, { ...base, maxPick: 1, rule: 'none', title: `${item.title} (동점 가리기)`.slice(0, 100), options: tied.map((o) => o.label) })
       ping(room.id)
       return ok()

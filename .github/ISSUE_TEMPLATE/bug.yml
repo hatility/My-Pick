@@ -67,7 +67,7 @@ body:
     attributes:
       label: My Pick 버전
       description: 관리자 화면 → 한눈에 보기 → 서버 상태에 나와요.
-      placeholder: 1.0.0
+      placeholder: 1.0.1
   - type: checkboxes
     id: checks
     attributes:

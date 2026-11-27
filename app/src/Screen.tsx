@@ -266,7 +266,7 @@ export function Observe({ code }: { code: string }) {
               <li key={i}>
                 <time dateTime={new Date(r.at).toISOString()}>{new Date(r.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })}</time>
                 <strong>{r.action}</strong>
-                <span>{[r.by, r.detail.제목, r.detail.이유, r.detail.방법].filter(Boolean).join(', ')}</span>
+                <span>{[r.by, r.detail.제목, r.detail.이유, r.detail.방법, typeof r.detail.늘린초 === 'number' ? `${r.detail.늘린초}초 늘림` : null, typeof r.detail.남은초 === 'number' ? `남은 시간 ${r.detail.남은초}초` : null].filter(Boolean).join(', ')}</span>
               </li>
             ))}
           </ul>

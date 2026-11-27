@@ -67,7 +67,7 @@ export function MobileVote() {
           <HostDoor org={v.org} />
           <ViewSwitch to="pc" />
         </main>
-        <HomeFoot org={v.org} />
+        <HomeFoot org={v.org} compact />
       </div>
     )
 

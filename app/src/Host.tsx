@@ -9,7 +9,7 @@ import { AdFoot, AppMark, Stamp, ThemeToggle, TopBar } from './parts'
 import { Err, RoomForm, RoomPage, useAct, type Defaults } from './Admin'
 import { Lost, Result, TimeLeft, useLive } from './parts'
 import { Qr } from './Qr'
-import { BellRing, MonitorUp, Pause, Play, Plus, SkipForward, Square } from 'lucide-react'
+import { BellRing, CircleStop, MonitorUp, Pause, Play, Plus, SkipForward, Square } from 'lucide-react'
 import type { RoomState } from './api'
 
 function useOrg() {
@@ -249,7 +249,7 @@ function RemotePad({ id }: { id: number }) {
   const raised = (s?.hands?.question ?? 0) + (s?.hands?.more ?? 0)
   const before = useRef(0)
   useEffect(() => {
-    if (raised > before.current) navigator.vibrate?.(120)
+    if (raised > before.current && (navigator.userActivation?.hasBeenActive ?? true)) navigator.vibrate?.(120)
     before.current = raised
   }, [raised])
   if (!live.ready) return null
@@ -313,7 +313,7 @@ function RemotePad({ id }: { id: number }) {
       <div className="remote-keys">
         {open ? (
           <>
-            <button className="btn btn-primary remote-key" disabled={busy} onClick={async () => (await ask('지금 마감할까요?', { ok: '지금 마감' })) && post(`/api/admin/items/${open.id}/close`)}>
+            <button className="btn btn-danger-solid remote-key" disabled={busy} onClick={async () => (await ask('지금 마감할까요?', { ok: '지금 마감' })) && post(`/api/admin/items/${open.id}/close`)}>
               <Square size={26} aria-hidden="true" />
               지금 마감
             </button>
@@ -345,6 +345,12 @@ function RemotePad({ id }: { id: number }) {
               다음 주제 열기
             </button>
           )
+        )}
+        {/* 남은 주제가 없으면 방을 끝낼 수 있어요 (공동 진행자는 못 해요) */}
+        {!open && !next && !s.room.closed && s.admin?.role !== 'cohost' && (
+          <button className="btn btn-danger remote-key" disabled={busy} onClick={async () => (await ask('방을 끝낼까요?\n더는 픽할 수 없어요. 결과는 계속 볼 수 있어요.', { ok: '방 끝내기', danger: true })) && post(`/api/admin/rooms/${id}/close`)}>
+            <CircleStop size={26} aria-hidden="true" />방 끝내기
+          </button>
         )}
       </div>
 

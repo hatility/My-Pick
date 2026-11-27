@@ -1,10 +1,10 @@
-# My Pick v1.0.0: .env.example 을 .env 로 복사해 ADMIN_PASSWORD 를 정하고 → docker compose up -d --build → http://localhost:8082
+# My Pick v1.0.1: .env.example 을 .env 로 복사해 ADMIN_PASSWORD 를 정하고 → docker compose up -d --build → http://localhost:8082
 # 참여: /   방 만들기: /new   관리자: /admin   (HTTPS 로 띄우기는 app/docker-compose.https.yml 참고)
 name: my-pick
 services:
   web:
     build: ./app
-    image: my-pick:1.0.0
+    image: my-pick:1.0.1
     ports:
       - "${PORT:-8082}:8080"
     env_file:
