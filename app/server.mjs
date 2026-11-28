@@ -61,7 +61,7 @@ const OBJECT_MS = num(env.OBJECTION_MINUTES, 10, 0, 1440) * 60_000
 const HOST_SESSION_MS = num(env.HOST_SESSION_HOURS, 24, 1, 720) * 3_600_000
 
 const BOOT = Date.now()
-const VERSION = '1.0.1'
+const VERSION = '1.0.2'
 
 // ── 저장 (SQLite) ────────────────────────────────────────
 mkdirSync(UPLOADS, { recursive: true })
@@ -1895,6 +1895,16 @@ async function serveFile(req, res, file, cache) {
   res.end(req.method === 'HEAD' ? undefined : out)
 }
 
+/** 카카오톡 · 메신저 미리보기(og): 그림 주소는 전체 주소여야 해서 SITE_URL(없으면 요청한 주소)을 붙여요.
+    방 입장 링크(?room=6자리)면 ‘방에 들어오세요’로 바꿔요. 방 제목은 넣지 않아요 (링크만으로 방 내용이 새지 않게) */
+function preview(req, html) {
+  const host = String(req.headers.host || '')
+  const origin = SITE_URL || (/^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `${isHttps(req) ? 'https' : 'http'}://${host}` : '')
+  html = html.replace('content="/og.png"', `content="${origin}/og.png"`)
+  if (/[?&]room=\d{6}(&|$)/.test(String(req.url)))
+    html = html.replace('property="og:title" content="My Pick"', 'property="og:title" content="My Pick 방에 들어오세요"').replace(/(property="og:description" content=")[^"]*/, '$1눌러서 바로 참여해요. 가입도 앱 설치도 없어요.')
+  return html
+}
 async function staticFile(req, res, path) {
   let rel
   try {
@@ -1909,7 +1919,7 @@ async function staticFile(req, res, path) {
   if (extname(rel)) throw new Bad(404, '없는 파일이에요')
   // 알고 있는 화면 주소만 200 으로 (/ · /m · /new · /host · /admin · /screen/방번호)
   const known = /^\/(m|new|host|remote|guide|about|feedback|verify|terms|privacy|admin|(screen|observe)\/\d{6})?\/?$/.test(rel)
-  const [html, extra] = pack(res, await readFile(join(STATIC, 'index.html')))
+  const [html, extra] = pack(res, Buffer.from(preview(req, (await readFile(join(STATIC, 'index.html'))).toString())))
   res.writeHead(known ? 200 : 404, { ...SECURITY, 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache', ...extra })
   res.end(req.method === 'HEAD' ? undefined : html)
 }

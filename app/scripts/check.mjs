@@ -658,7 +658,7 @@ try {
 
   // ── 한눈에 보기 · 통계 · 기록 찾기 · 내 비밀번호 · 백업 ──
   const over = (await admin.get('/api/admin/overview')).data
-  assert.deepEqual([over.server.version, over.server.auditIntact, over.live.length], ['1.0.1', false, 0]) // 앞에서 기록을 일부러 고쳐 둔 상태
+  assert.deepEqual([over.server.version, over.server.auditIntact, over.live.length], ['1.0.2', false, 0]) // 앞에서 기록을 일부러 고쳐 둔 상태
   assert.ok(over.server.dbBytes > 0 && over.rooms.total > 3 && over.today.rooms > 3)
   const stat = (await admin.get('/api/admin/stats')).data.days.at(-1)
   assert.ok(stat.votes > 5 && stat.voters > 5 && stat.items > 5)

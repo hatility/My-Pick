@@ -12,13 +12,13 @@
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-14213d)](LICENSE)
 ![Docker](https://img.shields.io/badge/docker-compose-cf2a2a)
 ![Node](https://img.shields.io/badge/node-24-14213d)
-![Version](https://img.shields.io/badge/version-1.0.1-cf2a2a)
+![Version](https://img.shields.io/badge/version-1.0.2-cf2a2a)
 
 <img src="docs/screenshots/home-pc.png" width="820" alt="My Pick 첫 화면" />
 
 </div>
 
-> **지금 버전은 1.0.1 이에요.** 100명 · 1000명 · 2000명 모의 진행과 공격 시험으로 찾은 문제를 고치고, 끝내는 버튼과 맨 아래 칸을 다듬었어요. 바뀐 것은 [CHANGELOG.md](CHANGELOG.md) 에 있어요.
+> **지금 버전은 1.0.2 예요.** 카카오톡으로 주소를 보낼 때 미리보기 그림이 떠요. 1.0.1 에서는 100명 · 1000명 · 2000명 모의 진행과 공격 시험으로 찾은 문제를 고치고, 끝내는 버튼과 맨 아래 칸을 다듬었어요. 바뀐 것은 [CHANGELOG.md](CHANGELOG.md) 에 있어요.
 
 ## 이렇게 써요
 
@@ -36,6 +36,7 @@
 
 **참여하는 사람**
 - 방 번호(또는 QR)만으로 참여, 새로고침해도 이어서
+- 카카오톡 · 메신저로 주소를 보내면 미리보기 그림과 소개 글이 떠요
 - PC · 휴대폰 · 태블릿 화면, 어두운 화면, 한 손 모드, 글자 크기, 쉬운 말 모드
 - 기다리는 동안 진행 상황, 조용한 손들기(누가 눌렀는지 모르게), 마감 뒤 익명으로 확인 요청 보내기
 - 방에 있는 동안 화면이 꺼지지 않게, 처음 쓰는 사람을 위한 이용 가이드(`/guide`)
@@ -68,7 +69,7 @@
 
 ## 바로 띄우기
 
-Docker 만 있으면 돼요. [Releases](https://github.com/hatility/My-Pick/releases) 의 `my-pick-v1.0.1.zip` 을 받아 풀거나, 저장소를 받아요.
+Docker 만 있으면 돼요. [Releases](https://github.com/hatility/My-Pick/releases) 의 `my-pick-v1.0.2.zip` 을 받아 풀거나, 저장소를 받아요.
 
 ```bash
 git clone https://github.com/hatility/My-Pick.git
@@ -82,7 +83,7 @@ docker compose up -d --build
 1. `ADMIN_PASSWORD`: 관리자 비밀번호 (8자 이상)
 2. `CONTACT`: 운영하는 곳의 연락처. 개인정보 처리방침의 ‘개인정보 보호책임자 · 문의’ 에 나와요
 3. `AUDIT_SECRET`: 기록을 봉하는 열쇠 (`openssl rand -hex 32`). 백업과 함께 안전한 곳에 적어 두세요
-4. 밖에서 쓸 때는 `SITE_URL` · `DOMAIN` 을 넣고 HTTPS 로 띄우기 (아래)
+4. 밖에서 쓸 때는 `SITE_URL` · `DOMAIN` 을 넣고 HTTPS 로 띄우기 (아래). `SITE_URL` 은 카카오톡에 주소를 보낼 때 뜨는 미리보기 그림 주소에도 쓰여요
 
 | 주소 | 무엇 |
 |---|---|
